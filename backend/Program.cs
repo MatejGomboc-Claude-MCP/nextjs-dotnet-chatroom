@@ -1,5 +1,6 @@
 using ChatRoom.Api.Data;
 using ChatRoom.Api.Hubs;
+using ChatRoom.Api.Middleware;
 using ChatRoom.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,8 +40,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else 
+{
+    app.UseHttpsRedirection();
+}
 
-app.UseHttpsRedirection();
+// Use custom middleware
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
 app.UseCors("CorsPolicy");
 app.UseAuthorization();
 
