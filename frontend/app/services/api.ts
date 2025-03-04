@@ -2,6 +2,7 @@ import axios, { AxiosError } from 'axios';
 
 // Define the base API URL from environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const BASE_URL = API_URL.endsWith('/api') ? API_URL.substring(0, API_URL.length - 4) : API_URL;
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -9,6 +10,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // Add timeout to prevent long-pending requests
 });
 
 // Add request interceptor for potential auth tokens
@@ -106,8 +108,15 @@ export const messagesApi = {
   
   getMessagesPaged: async (page: number = 1, pageSize: number = 50) => {
     try {
+      // Validate inputs
+      const validPage = Math.max(1, page);
+      const validPageSize = Math.min(100, Math.max(1, pageSize));
+      
       const response = await apiClient.get<PagedResult<Message>>('/messages', {
-        params: { page, pageSize }
+        params: { 
+          page: validPage, 
+          pageSize: validPageSize 
+        }
       });
       return response.data;
     } catch (error) {
@@ -118,6 +127,10 @@ export const messagesApi = {
   
   getMessage: async (id: string) => {
     try {
+      if (!id || !id.trim()) {
+        throw new Error('Message ID is required');
+      }
+      
       const response = await apiClient.get(`/messages/${id}`);
       return response.data;
     } catch (error) {
@@ -128,7 +141,21 @@ export const messagesApi = {
   
   createMessage: async (text: string, username: string) => {
     try {
-      const response = await apiClient.post('/messages', { text, username });
+      if (!text.trim()) {
+        throw new Error('Message text is required');
+      }
+      
+      if (!username.trim()) {
+        throw new Error('Username is required');
+      }
+      
+      // Sanitize inputs to prevent injection attacks
+      const sanitizedData = {
+        text: text.trim(),
+        username: username.trim()
+      };
+      
+      const response = await apiClient.post('/messages', sanitizedData);
       return response.data;
     } catch (error) {
       console.error('Failed to create message:', error);
@@ -148,7 +175,7 @@ export const handleApiError = (error: any): ApiError => {
     };
   }
   return { 
-    message: error.message || 'An unknown error occurred' 
+    message: error instanceof Error ? error.message : 'An unknown error occurred' 
   };
 };
 
@@ -156,7 +183,8 @@ export const handleApiError = (error: any): ApiError => {
 export const healthApi = {
   checkHealth: async () => {
     try {
-      const response = await axios.get('/health');
+      // Use the base URL with health endpoint
+      const response = await axios.get(`${BASE_URL}/health`);
       return response.status === 200;
     } catch (error) {
       console.error('Health check failed:', error);
