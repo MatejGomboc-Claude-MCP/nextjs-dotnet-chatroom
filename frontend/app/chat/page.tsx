@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import axios from 'axios';
-import { io, Socket } from 'socket.io-client';
+import { chatConnection, Message as SignalRMessage, TypingStatus } from '../services/signalr';
+import { messagesApi, ApiError, handleApiError } from '../services/api';
 import MessageItem from '../components/MessageItem';
 import ChatInput from '../components/ChatInput';
+import TypingIndicator from '../components/TypingIndicator';
+import ErrorMessage from '../components/ErrorMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface Message {
   id: string;
@@ -18,8 +21,11 @@ interface Message {
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [username, setUsername] = useState('');
-  const socketRef = useRef<Socket>();
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -36,14 +42,18 @@ export default function ChatPage() {
     // Fetch previous messages
     const fetchMessages = async () => {
       try {
-        const response = await axios.get('/api/messages');
-        const fetchedMessages = response.data.map((msg: any) => ({
+        setLoading(true);
+        const result = await messagesApi.getMessagesPaged();
+        const fetchedMessages = result.items.map((msg) => ({
           ...msg,
           isCurrentUser: msg.username === storedUsername
         }));
         setMessages(fetchedMessages);
-      } catch (error) {
-        console.error('Error fetching messages:', error);
+        setError(null);
+      } catch (err) {
+        const apiError = handleApiError(err);
+        setError(`Error loading messages: ${apiError.message}`);
+        console.error('Error fetching messages:', err);
       } finally {
         setLoading(false);
       }
@@ -51,24 +61,61 @@ export default function ChatPage() {
 
     fetchMessages();
 
-    // Set up socket connection
-    const socket = io('http://localhost:5000');
-    socketRef.current = socket;
+    // Set up SignalR connection
+    const setupSignalR = async () => {
+      try {
+        // Connection status listener
+        const unsubscribeConnection = chatConnection.onConnectionChange((connected) => {
+          setIsConnected(connected);
+          setConnectionError(connected ? null : 'Connection to chat server lost. Attempting to reconnect...');
+        });
 
-    socket.on('connect', () => {
-      console.log('Connected to server');
-      socket.emit('joinRoom', { username: storedUsername });
-    });
+        // Message listener
+        const unsubscribeMessage = chatConnection.onMessage((message: SignalRMessage) => {
+          setMessages(prevMessages => [...prevMessages, {
+            ...message,
+            isCurrentUser: message.username === storedUsername
+          }]);
+        });
 
-    socket.on('message', (message: any) => {
-      setMessages(prevMessages => [...prevMessages, {
-        ...message,
-        isCurrentUser: message.username === storedUsername
-      }]);
-    });
+        // Typing status listener
+        const unsubscribeTyping = chatConnection.onTypingStatus((status: TypingStatus) => {
+          setTypingUsers(prev => {
+            // Remove user if they stopped typing
+            if (!status.isTyping) {
+              return prev.filter(user => user !== status.username);
+            }
+            
+            // Add user if they started typing and aren't already in the list
+            if (!prev.includes(status.username)) {
+              return [...prev, status.username];
+            }
+            
+            return prev;
+          });
+        });
 
+        // Start connection
+        await chatConnection.start(storedUsername);
+
+        // Return cleanup function
+        return () => {
+          unsubscribeConnection();
+          unsubscribeMessage();
+          unsubscribeTyping();
+          chatConnection.stop();
+        };
+      } catch (err) {
+        setConnectionError('Failed to connect to chat server. Please try again later.');
+        console.error('SignalR connection error:', err);
+        return () => {};
+      }
+    };
+
+    const cleanup = setupSignalR();
+    
     return () => {
-      socket.disconnect();
+      cleanup.then(cleanupFn => cleanupFn());
     };
   }, [router]);
 
@@ -78,22 +125,25 @@ export default function ChatPage() {
   }, [messages]);
 
   const sendMessage = async (text: string) => {
-    if (!text.trim() || !socketRef.current) return;
+    if (!text.trim() || !isConnected) return;
 
     try {
-      // Send via API to persist
-      await axios.post('/api/messages', {
-        text,
-        username
-      });
+      // Send message via SignalR
+      await chatConnection.sendMessage(text, username);
+    } catch (err) {
+      setError(`Failed to send message: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('Error sending message:', err);
+    }
+  };
 
-      // Emit via socket for real-time
-      socketRef.current.emit('sendMessage', {
-        text,
-        username
-      });
-    } catch (error) {
-      console.error('Error sending message:', error);
+  const sendTypingStatus = async (isTyping: boolean) => {
+    if (!isConnected) return;
+    
+    try {
+      await chatConnection.sendTypingStatus(username, isTyping);
+    } catch (err) {
+      // Don't show error for typing status failures
+      console.error('Error sending typing status:', err);
     }
   };
 
@@ -101,17 +151,23 @@ export default function ChatPage() {
     <div className="chat-container">
       <div className="chat-header">
         <h2>Chat Room</h2>
-        <div>
+        <div className="user-info">
           <span>Logged in as: </span>
           <strong>{username}</strong>
+          <span className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
+            {isConnected ? 'Connected' : 'Disconnected'}
+          </span>
         </div>
       </div>
       
+      {connectionError && <ErrorMessage message={connectionError} />}
+      {error && <ErrorMessage message={error} />}
+      
       <div className="chat-messages">
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>Loading messages...</div>
+          <LoadingSpinner />
         ) : messages.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>No messages yet. Start the conversation!</div>
+          <div className="empty-state">No messages yet. Start the conversation!</div>
         ) : (
           messages.map((message) => (
             <MessageItem key={message.id} message={message} />
@@ -120,7 +176,13 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
       
-      <ChatInput onSendMessage={sendMessage} />
+      {typingUsers.length > 0 && <TypingIndicator typingUsers={typingUsers.filter(user => user !== username)} />}
+      
+      <ChatInput 
+        onSendMessage={sendMessage} 
+        onTypingStatusChange={sendTypingStatus}
+        disabled={!isConnected}
+      />
     </div>
   );
 }
