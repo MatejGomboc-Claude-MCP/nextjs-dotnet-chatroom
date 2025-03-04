@@ -1,0 +1,28 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatRoom.Api", "ChatRoom.Api.csproj", "{5E66D3C4-7C51-41F2-8FFF-A32B6AD4F5BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatRoom.Api.Tests", "ChatRoom.Api.Tests\ChatRoom.Api.Tests.csproj", "{F5C9D9DE-C8C5-4F8E-9B5E-47D92D97EEBC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5E66D3C4-7C51-41F2-8FFF-A32B6AD4F5BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E66D3C4-7C51-41F2-8FFF-A32B6AD4F5BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E66D3C4-7C51-41F2-8FFF-A32B6AD4F5BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E66D3C4-7C51-41F2-8FFF-A32B6AD4F5BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5C9D9DE-C8C5-4F8E-9B5E-47D92D97EEBC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5C9D9DE-C8C5-4F8E-9B5E-47D92D97EEBC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5C9D9DE-C8C5-4F8E-9B5E-47D92D97EEBC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5C9D9DE-C8C5-4F8E-9B5E-47D92D97EEBC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
