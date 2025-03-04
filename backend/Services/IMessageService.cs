@@ -9,6 +9,7 @@ namespace ChatRoom.Api.Services
     public interface IMessageService
     {
         Task<IEnumerable<MessageDto>> GetAllMessagesAsync();
+        Task<PagedResultDto<MessageDto>> GetMessagesPagedAsync(int page, int pageSize);
         Task<MessageDto> GetMessageByIdAsync(Guid id);
         Task<MessageDto> CreateMessageAsync(string text, string username);
     }
