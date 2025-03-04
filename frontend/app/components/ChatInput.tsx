@@ -2,9 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 
 interface ChatInputProps {
   onSendMessage: (text: string) => void;
+  onTypingStatusChange?: (isTyping: boolean) => void;
+  disabled?: boolean;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ 
+  onSendMessage, 
+  onTypingStatusChange,
+  disabled = false 
+}) => {
   const [message, setMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -18,9 +24,14 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
   }, []);
 
   const handleTyping = () => {
-    if (!isTyping) {
+    const wasTyping = isTyping;
+    if (!wasTyping) {
       setIsTyping(true);
-      // Add code here to emit typing event via SignalR if needed
+      
+      // Notify parent component about typing status change
+      if (onTypingStatusChange) {
+        onTypingStatusChange(true);
+      }
     }
     
     // Clear existing timeout
@@ -31,21 +42,31 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
     // Set a new timeout to stop typing indicator after 2 seconds
     typingTimeoutRef.current = setTimeout(() => {
       setIsTyping(false);
-      // Add code here to emit stopped typing event via SignalR if needed
+      
+      // Notify parent component about typing status change
+      if (onTypingStatusChange) {
+        onTypingStatusChange(false);
+      }
     }, 2000);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (message.trim()) {
+    if (message.trim() && !disabled) {
       onSendMessage(message);
       setMessage('');
       
-      // Clear typing timeout
+      // Clear typing timeout and set typing status to false
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
-        setIsTyping(false);
+      }
+      
+      setIsTyping(false);
+      
+      // Notify parent component about typing status change
+      if (onTypingStatusChange) {
+        onTypingStatusChange(false);
       }
     }
   };
@@ -55,9 +76,14 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
     return () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
+        
+        // Make sure to notify parent that typing stopped when component unmounts
+        if (isTyping && onTypingStatusChange) {
+          onTypingStatusChange(false);
+        }
       }
     };
-  }, []);
+  }, [isTyping, onTypingStatusChange]);
 
   return (
     <form className="chat-input" onSubmit={handleSubmit}>
@@ -67,14 +93,27 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
         value={message}
         onChange={(e) => {
           setMessage(e.target.value);
-          handleTyping();
+          if (e.target.value.trim()) {
+            handleTyping();
+          } else if (isTyping) {
+            // If field becomes empty, stop typing indication
+            setIsTyping(false);
+            if (onTypingStatusChange) {
+              onTypingStatusChange(false);
+            }
+            if (typingTimeoutRef.current) {
+              clearTimeout(typingTimeoutRef.current);
+            }
+          }
         }}
-        placeholder="Type a message..."
+        placeholder={disabled ? "Disconnected..." : "Type a message..."}
         aria-label="Message input"
+        disabled={disabled}
+        maxLength={1000} // Add reasonable character limit
       />
       <button 
         type="submit" 
-        disabled={!message.trim()}
+        disabled={!message.trim() || disabled}
         aria-label="Send message"
       >
         Send
