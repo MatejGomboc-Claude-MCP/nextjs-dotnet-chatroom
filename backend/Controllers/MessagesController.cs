@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using ChatRoom.Api.Models.DTOs;
 using ChatRoom.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Logging;
 
 namespace ChatRoom.Api.Controllers
@@ -71,6 +72,7 @@ namespace ChatRoom.Api.Controllers
 
         // POST: api/messages
         [HttpPost]
+        [EnableRateLimiting("message_creation")]
         public async Task<ActionResult<MessageDto>> CreateMessage([FromBody] CreateMessageDto createMessageDto)
         {
             if (!ModelState.IsValid)
