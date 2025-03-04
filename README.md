@@ -19,6 +19,11 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - Join/leave notifications
 - Error handling and loading states
 - HTTPS support for production
+- Pagination for message history
+- Rate limiting to prevent abuse
+- Health checks for monitoring
+- API service layer with proper error handling
+- SignalR service for real-time communication
 
 ## Project Structure
 
@@ -26,6 +31,9 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 ./
 ├── frontend/        # NextJS frontend application
 │   ├── app/         # Next.js app directory
+│   │   ├── components/ # Reusable UI components
+│   │   ├── services/   # API and SignalR services
+│   │   ├── styles/     # SASS stylesheets
 │   ├── public/      # Static assets
 ├── backend/         # .NET Core backend API
 │   ├── Controllers/ # API controllers
@@ -133,13 +141,21 @@ echo "0 2 * * * root MARIADB_PASSWORD=your_secure_password /path/to/repo/scripts
 
 ## API Endpoints
 
-- `GET /api/messages` - Get all messages
+- `GET /api/messages` - Get all messages with pagination
+  - Query parameters: `page` (default: 1), `pageSize` (default: 50, max: 100)
 - `GET /api/messages/{id}` - Get a specific message by ID
 - `POST /api/messages` - Create a new message
+- `GET /health` - Health check endpoint
 
 ## Real-time Communication
 
-The application uses SignalR for real-time communication. The SignalR hub is available at `/chatHub`.
+The application uses SignalR for real-time communication. The SignalR hub is available at `/chatHub` with the following methods:
+
+- `JoinRoom` - Join the chat room (client to server)
+- `SendMessage` - Send a message (client to server)
+- `SendTypingStatus` - Send typing status (client to server)
+- `message` - Receive a message (server to client)
+- `typingStatus` - Receive typing status (server to client)
 
 ## Security Features
 
@@ -148,6 +164,7 @@ The application uses SignalR for real-time communication. The SignalR hub is ava
 - Security headers for protection against common web vulnerabilities
 - Proper error handling
 - Input validation
+- Rate limiting to prevent abuse
 - Database connection string stored as environment variable
 
 ## License
