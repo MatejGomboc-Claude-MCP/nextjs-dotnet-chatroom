@@ -1,4 +1,5 @@
 import React from 'react';
+import DOMPurify from 'dompurify';
 
 interface MessageProps {
   message: {
@@ -12,18 +13,31 @@ interface MessageProps {
 
 const MessageItem: React.FC<MessageProps> = ({ message }) => {
   const messageClass = message.isCurrentUser ? 'message sent' : 'message received';
-  const formattedTime = new Date(message.timestamp).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  
+  let formattedTime;
+  try {
+    formattedTime = new Date(message.timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    formattedTime = 'Invalid time';
+    console.error('Error parsing timestamp:', error);
+  }
+
+  // Sanitize the message text to prevent XSS attacks
+  const sanitizedText = DOMPurify.sanitize(message.text);
+  
+  // Sanitize the username as well
+  const sanitizedUsername = DOMPurify.sanitize(message.username);
 
   return (
     <div className={messageClass}>
       <div className="message-header">
-        <span>{message.username}</span>
-        <span>{formattedTime}</span>
+        <span className="username">{sanitizedUsername}</span>
+        <span className="timestamp">{formattedTime}</span>
       </div>
-      <div className="message-content">{message.text}</div>
+      <div className="message-content">{sanitizedText}</div>
     </div>
   );
 };
