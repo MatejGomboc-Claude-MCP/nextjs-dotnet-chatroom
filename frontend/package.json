@@ -14,13 +14,15 @@
     "react-dom": "^18",
     "sass": "^1.70.0",
     "axios": "^1.6.5",
-    "socket.io-client": "^4.7.2"
+    "@microsoft/signalr": "^8.0.0",
+    "dompurify": "^3.0.6"
   },
   "devDependencies": {
     "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/dompurify": "^3.0.5",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.1.0"
