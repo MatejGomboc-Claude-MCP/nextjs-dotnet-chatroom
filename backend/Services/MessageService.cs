@@ -26,6 +26,44 @@ namespace ChatRoom.Api.Services
 
             return messages.Select(MapToDto);
         }
+        
+        public async Task<PagedResultDto<MessageDto>> GetMessagesPagedAsync(int page, int pageSize)
+        {
+            // Ensure valid parameters
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 50;
+            if (pageSize > 100) pageSize = 100;
+            
+            // Calculate skip
+            int skip = (page - 1) * pageSize;
+            
+            // Get total count
+            int totalCount = await _context.Messages.CountAsync();
+            
+            // Calculate page count
+            int pageCount = (int)Math.Ceiling(totalCount / (double)pageSize);
+            
+            // Get data for current page
+            var messages = await _context.Messages
+                .OrderByDescending(m => m.Timestamp)  // Most recent first
+                .Skip(skip)
+                .Take(pageSize)
+                .ToListAsync();
+                
+            // Create result
+            var result = new PagedResultDto<MessageDto>
+            {
+                Items = messages.Select(MapToDto),
+                TotalCount = totalCount,
+                PageCount = pageCount,
+                CurrentPage = page,
+                PageSize = pageSize,
+                HasNext = page < pageCount,
+                HasPrevious = page > 1
+            };
+            
+            return result;
+        }
 
         public async Task<MessageDto> GetMessageByIdAsync(Guid id)
         {
