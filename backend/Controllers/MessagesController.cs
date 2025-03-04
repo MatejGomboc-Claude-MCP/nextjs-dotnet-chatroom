@@ -48,7 +48,7 @@ namespace ChatRoom.Api.Controllers
             }
             catch (KeyNotFoundException)
             {
-                return NotFound();
+                return NotFound($"Message with ID {id} not found.");
             }
             catch (Exception ex)
             {
@@ -61,8 +61,10 @@ namespace ChatRoom.Api.Controllers
         [HttpPost]
         public async Task<ActionResult<MessageDto>> CreateMessage([FromBody] CreateMessageDto createMessageDto)
         {
-            if (createMessageDto == null)
-                return BadRequest("Message data is required.");
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
 
             try
             {
@@ -87,11 +89,5 @@ namespace ChatRoom.Api.Controllers
                 return StatusCode(500, "An error occurred while creating the message.");
             }
         }
-    }
-
-    public class CreateMessageDto
-    {
-        public string Text { get; set; } = string.Empty;
-        public string Username { get; set; } = string.Empty;
     }
 }
