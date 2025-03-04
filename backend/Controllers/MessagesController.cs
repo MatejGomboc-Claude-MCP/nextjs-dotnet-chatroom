@@ -23,12 +23,24 @@ namespace ChatRoom.Api.Controllers
 
         // GET: api/messages
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<MessageDto>>> GetMessages()
+        public async Task<ActionResult<PagedResultDto<MessageDto>>> GetMessages(
+            [FromQuery] int page = 1, 
+            [FromQuery] int pageSize = 50)
         {
             try
             {
-                var messages = await _messageService.GetAllMessagesAsync();
-                return Ok(messages);
+                if (page < 1)
+                {
+                    page = 1;
+                }
+
+                if (pageSize < 1 || pageSize > 100)
+                {
+                    pageSize = 50;
+                }
+
+                var result = await _messageService.GetMessagesPagedAsync(page, pageSize);
+                return Ok(result);
             }
             catch (Exception ex)
             {
