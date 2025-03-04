@@ -17,15 +17,25 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - User authentication (simple username-based)
 - Typing indicators
 - Join/leave notifications
+- Error handling and loading states
+- HTTPS support for production
 
 ## Project Structure
 
 ```
 ./
-├── frontend/      # NextJS frontend application
-├── backend/       # .NET Core backend API
-├── docs/          # Documentation
-└── scripts/       # Deployment scripts
+├── frontend/        # NextJS frontend application
+│   ├── app/         # Next.js app directory
+│   ├── public/      # Static assets
+├── backend/         # .NET Core backend API
+│   ├── Controllers/ # API controllers
+│   ├── Data/        # Database context
+│   ├── Hubs/        # SignalR hubs
+│   ├── Middleware/  # Custom middleware
+│   ├── Models/      # Domain models and DTOs
+│   ├── Services/    # Business logic services
+├── docs/            # Documentation
+└── scripts/         # Deployment and utility scripts
 ```
 
 ## Development Setup
@@ -41,6 +51,9 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 ```bash
 # Navigate to the frontend directory
 cd frontend
+
+# Create .env.local file from example
+cp .env.local.example .env.local
 
 # Install dependencies
 npm install
@@ -72,26 +85,50 @@ The backend API will be available at http://localhost:5000.
 2. Create a new database and user:
 
 ```sql
-CREATE DATABASE chatroom;
-CREATE USER 'chatroomuser'@'localhost' IDENTIFIED BY 'your_password';
-GRANT ALL PRIVILEGES ON chatroom.* TO 'chatroomuser'@'localhost';
+CREATE DATABASE chatroom_dev;
+CREATE USER 'chatroomuser'@'localhost' IDENTIFIED BY 'dev_password';
+GRANT ALL PRIVILEGES ON chatroom_dev.* TO 'chatroomuser'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-3. Update the connection string in `backend/appsettings.json` with your database details
+3. The connection string is already set in `appsettings.Development.json`
 
 ## Production Deployment on Debian
 
-See the `docs/deployment.md` file for detailed deployment instructions. 
+### Environment Variables
 
-Quick deployment:
+Before deployment, set the following environment variables:
 
 ```bash
-# Make the deployment script executable
+export REPO_PATH=/path/to/your/repo
+export DOMAIN=your-domain.com
+export MARIADB_PASSWORD=your_secure_password
+export DB_USER=chatroomuser  # Optional, defaults to chatroomuser
+export DB_NAME=chatroom      # Optional, defaults to chatroom
+```
+
+### Deployment Steps
+
+```bash
+# Make the scripts executable
 chmod +x scripts/deploy.sh
+chmod +x scripts/setup_https.sh
+chmod +x scripts/backup_db.sh
 
 # Run the deployment script (as root or with sudo)
 sudo ./scripts/deploy.sh
+
+# Set up HTTPS (optional but recommended for production)
+sudo ./scripts/setup_https.sh
+```
+
+### Database Backups
+
+To set up automatic database backups, add the backup script to cron:
+
+```bash
+# Run backups daily at 2 AM
+echo "0 2 * * * root MARIADB_PASSWORD=your_secure_password /path/to/repo/scripts/backup_db.sh" > /etc/cron.d/chatroom-backups
 ```
 
 ## API Endpoints
@@ -103,6 +140,15 @@ sudo ./scripts/deploy.sh
 ## Real-time Communication
 
 The application uses SignalR for real-time communication. The SignalR hub is available at `/chatHub`.
+
+## Security Features
+
+- Environment-specific configuration
+- HTTPS support with automatic certificate renewal
+- Security headers for protection against common web vulnerabilities
+- Proper error handling
+- Input validation
+- Database connection string stored as environment variable
 
 ## License
 
