@@ -15,7 +15,7 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - Persistent message storage in MariaDB
 - Responsive design using SASS
 - User authentication (simple username-based)
-- Typing indicators
+- Typing indicators with real-time updates
 - Join/leave notifications
 - Error handling and loading states
 - HTTPS support for production
@@ -24,6 +24,10 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - Health checks for monitoring
 - API service layer with proper error handling
 - SignalR service for real-time communication
+- Content sanitization to prevent XSS attacks
+- Error boundaries for graceful error handling
+- Security headers for browser protection
+- Input validation on both client and server sides
 
 ## Project Structure
 
@@ -162,10 +166,24 @@ The application uses SignalR for real-time communication. The SignalR hub is ava
 - Environment-specific configuration
 - HTTPS support with automatic certificate renewal
 - Security headers for protection against common web vulnerabilities
-- Proper error handling
-- Input validation
+- Proper error handling with detailed client feedback
+- Input validation with regex patterns
 - Rate limiting to prevent abuse
 - Database connection string stored as environment variable
+- Content sanitization to prevent XSS attacks
+- CORS configuration with proper origins
+
+## Recent Updates
+
+- Fixed SignalR integration on the frontend (replaced Socket.IO)
+- Added proper error handling and user feedback
+- Improved username validation and input sanitization
+- Added typing indicators integration
+- Added user leave notifications
+- Fixed API URL handling for health checks and other endpoints
+- Added error boundaries for React error handling
+- Added security headers in Next.js configuration
+- Improved environment variable handling for production builds
 
 ## License
 
