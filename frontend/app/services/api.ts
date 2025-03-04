@@ -44,6 +44,10 @@ apiClient.interceptors.response.use(
           // Not found
           console.error('Resource not found');
           break;
+        case 429:
+          // Rate limited
+          console.error('Rate limit exceeded. Please try again later.');
+          break;
         case 500:
           // Server error
           console.error('Server error occurred');
@@ -63,6 +67,31 @@ apiClient.interceptors.response.use(
   }
 );
 
+// Types
+export interface Message {
+  id: string;
+  text: string;
+  username: string;
+  timestamp: string;
+  isCurrentUser?: boolean;
+}
+
+export interface PagedResult<T> {
+  items: T[];
+  totalCount: number;
+  pageCount: number;
+  currentPage: number;
+  pageSize: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+}
+
+export interface ApiError {
+  message: string;
+  status?: number;
+  details?: any;
+}
+
 // Messages API
 export const messagesApi = {
   getAllMessages: async () => {
@@ -71,6 +100,18 @@ export const messagesApi = {
       return response.data;
     } catch (error) {
       console.error('Failed to fetch messages:', error);
+      throw error;
+    }
+  },
+  
+  getMessagesPaged: async (page: number = 1, pageSize: number = 50) => {
+    try {
+      const response = await apiClient.get<PagedResult<Message>>('/messages', {
+        params: { page, pageSize }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch paged messages:', error);
       throw error;
     }
   },
@@ -96,13 +137,6 @@ export const messagesApi = {
   }
 };
 
-// Types
-export interface ApiError {
-  message: string;
-  status?: number;
-  details?: any;
-}
-
 // API Utilities
 export const handleApiError = (error: any): ApiError => {
   if (axios.isAxiosError(error)) {
@@ -116,6 +150,19 @@ export const handleApiError = (error: any): ApiError => {
   return { 
     message: error.message || 'An unknown error occurred' 
   };
+};
+
+// Health API
+export const healthApi = {
+  checkHealth: async () => {
+    try {
+      const response = await axios.get('/health');
+      return response.status === 200;
+    } catch (error) {
+      console.error('Health check failed:', error);
+      return false;
+    }
+  }
 };
 
 export default apiClient;
