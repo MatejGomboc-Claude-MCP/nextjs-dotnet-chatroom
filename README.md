@@ -8,6 +8,7 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - **Backend**: .NET 8 (ASP.NET Core)
 - **Database**: MariaDB 11.2
 - **Deployment**: Debian 12 (Bookworm)
+- **Testing**: Jest (frontend), xUnit (backend)
 
 ## Features
 
@@ -28,26 +29,32 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - Error boundaries for graceful error handling
 - Security headers for browser protection
 - Input validation on both client and server sides
+- Automated testing for both frontend and backend
+- Reconnection handling for network interruptions
+- Auto-scroll with smart behavior based on user interaction
 
 ## Project Structure
 
 ```
 ./
-├── frontend/        # NextJS frontend application
-│   ├── app/         # Next.js app directory
-│   │   ├── components/ # Reusable UI components
-│   │   ├── services/   # API and SignalR services
-│   │   ├── styles/     # SASS stylesheets
-│   ├── public/      # Static assets
-├── backend/         # .NET Core backend API
-│   ├── Controllers/ # API controllers
-│   ├── Data/        # Database context
-│   ├── Hubs/        # SignalR hubs
-│   ├── Middleware/  # Custom middleware
-│   ├── Models/      # Domain models and DTOs
-│   ├── Services/    # Business logic services
-├── docs/            # Documentation
-└── scripts/         # Deployment and utility scripts
+├── frontend/                  # NextJS frontend application
+│   ├── app/                   # Next.js app directory
+│   │   ├── components/        # Reusable UI components
+│   │   ├── chat/              # Chat page and functionality
+│   │   ├── services/          # API and SignalR services
+│   │   ├── styles/            # SASS stylesheets
+│   ├── public/                # Static assets
+│   ├── jest.setup.js          # Jest testing setup
+├── backend/                   # .NET Core backend API
+│   ├── Controllers/           # API controllers
+│   ├── Data/                  # Database context
+│   ├── Hubs/                  # SignalR hubs
+│   ├── Middleware/            # Custom middleware
+│   ├── Models/                # Domain models and DTOs
+│   ├── Services/              # Business logic services
+│   ├── ChatRoom.Api.Tests/    # Backend unit tests
+├── docs/                      # Documentation
+└── scripts/                   # Deployment and utility scripts
 ```
 
 ## Development Setup
@@ -104,6 +111,31 @@ FLUSH PRIVILEGES;
 ```
 
 3. The connection string is already set in `appsettings.Development.json`
+
+## Running Tests
+
+### Frontend Tests
+
+```bash
+# Navigate to the frontend directory
+cd frontend
+
+# Run tests once
+npm test
+
+# Run tests in watch mode during development
+npm run test:watch
+```
+
+### Backend Tests
+
+```bash
+# Navigate to the backend directory
+cd backend
+
+# Run tests
+dotnet test
+```
 
 ## Production Deployment on Debian
 
@@ -172,6 +204,7 @@ The application uses SignalR for real-time communication. The SignalR hub is ava
 - Database connection string stored as environment variable
 - Content sanitization to prevent XSS attacks
 - CORS configuration with proper origins
+- Automatic reconnection with exponential backoff
 
 ## Recent Updates
 
@@ -184,6 +217,9 @@ The application uses SignalR for real-time communication. The SignalR hub is ava
 - Added error boundaries for React error handling
 - Added security headers in Next.js configuration
 - Improved environment variable handling for production builds
+- Added unit testing for both frontend and backend
+- Implemented proper pagination with auto-scroll functionality
+- Enhanced SignalR reconnection handling
 
 ## License
 
