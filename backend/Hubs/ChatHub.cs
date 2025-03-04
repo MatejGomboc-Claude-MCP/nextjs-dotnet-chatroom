@@ -86,5 +86,31 @@ namespace ChatRoom.Api.Hubs
                 _logger.LogError(ex, "Error in SendMessage");
             }
         }
+
+        public async Task SendTypingStatus(object typingData)
+        {
+            try
+            {
+                var dynamicData = (dynamic)typingData;
+                string? username = dynamicData?.username;
+                bool isTyping = dynamicData?.isTyping ?? false;
+
+                if (string.IsNullOrEmpty(username))
+                {
+                    return;
+                }
+
+                // Broadcast typing status to all clients except the sender
+                await Clients.Others.SendAsync("typingStatus", new 
+                { 
+                    username, 
+                    isTyping 
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in SendTypingStatus");
+            }
+        }
     }
 }
