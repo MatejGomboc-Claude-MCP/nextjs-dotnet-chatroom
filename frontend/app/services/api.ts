@@ -16,10 +16,10 @@ const apiClient = axios.create({
 // Add request interceptor for potential auth tokens
 apiClient.interceptors.request.use((config) => {
   // If we implement auth later, we can add token here
-  // const token = localStorage.getItem('token');
-  // if (token) {
-  //   config.headers.Authorization = `Bearer ${token}`;
-  // }
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -37,6 +37,10 @@ apiClient.interceptors.response.use(
         case 401:
           // Unauthorized - handle auth error
           console.error('Authentication required');
+          if (window.location.pathname !== '/') {
+            // Redirect to login if not already there
+            window.location.href = '/';
+          }
           break;
         case 403:
           // Forbidden - handle permission error
@@ -45,6 +49,10 @@ apiClient.interceptors.response.use(
         case 404:
           // Not found
           console.error('Resource not found');
+          break;
+        case 409:
+          // Conflict - might be used for duplicate username
+          console.error('Resource conflict (possibly duplicate username)');
           break;
         case 429:
           // Rate limited
@@ -75,6 +83,8 @@ export interface Message {
   text: string;
   username: string;
   timestamp: string;
+  isEdited?: boolean;
+  editedAt?: string;
   isCurrentUser?: boolean;
 }
 
@@ -92,6 +102,20 @@ export interface ApiError {
   message: string;
   status?: number;
   details?: any;
+}
+
+export interface UserSignIn {
+  username: string;
+  password?: string;
+  rememberMe?: boolean;
+}
+
+// Standardized API response type
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  status?: number;
 }
 
 // Messages API
@@ -161,6 +185,92 @@ export const messagesApi = {
       console.error('Failed to create message:', error);
       throw error;
     }
+  },
+  
+  deleteMessage: async (id: string) => {
+    try {
+      if (!id || !id.trim()) {
+        throw new Error('Message ID is required');
+      }
+      
+      const response = await apiClient.delete(`/messages/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to delete message with ID ${id}:`, error);
+      throw error;
+    }
+  },
+  
+  editMessage: async (id: string, text: string) => {
+    try {
+      if (!id || !id.trim()) {
+        throw new Error('Message ID is required');
+      }
+      
+      if (!text.trim()) {
+        throw new Error('Message text is required');
+      }
+      
+      const response = await apiClient.put(`/messages/${id}`, { text: text.trim() });
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to edit message with ID ${id}:`, error);
+      throw error;
+    }
+  },
+  
+  searchMessages: async (query: string, page: number = 1, pageSize: number = 20) => {
+    try {
+      if (!query.trim()) {
+        throw new Error('Search query is required');
+      }
+      
+      const response = await apiClient.get('/messages/search', {
+        params: {
+          q: query,
+          page,
+          pageSize
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to search messages:', error);
+      throw error;
+    }
+  }
+};
+
+// User API
+export const userApi = {
+  signIn: async (username: string, password?: string) => {
+    try {
+      if (!username.trim()) {
+        throw new Error('Username is required');
+      }
+      
+      // In a real app, we'd use a proper authentication endpoint
+      // For this simple app, we're just storing the username
+      sessionStorage.setItem('chatUsername', username);
+      
+      // Mock a successful API call
+      return {
+        success: true,
+        data: { username }
+      };
+    } catch (error) {
+      console.error('Failed to sign in:', error);
+      throw error;
+    }
+  },
+  
+  getActiveUsers: async () => {
+    try {
+      const response = await axios.get(`${BASE_URL}/chatHub/activeUsers`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get active users:', error);
+      throw error;
+    }
   }
 };
 
@@ -168,12 +278,29 @@ export const messagesApi = {
 export const handleApiError = (error: any): ApiError => {
   if (axios.isAxiosError(error)) {
     const axiosError = error as AxiosError<any>;
+    const responseData = axiosError.response?.data;
+    
+    // Try to extract a structured error message
+    let errorMessage = axiosError.message;
+    if (responseData) {
+      if (typeof responseData === 'string') {
+        errorMessage = responseData;
+      } else if (responseData.message) {
+        errorMessage = responseData.message;
+      } else if (responseData.error) {
+        errorMessage = responseData.error;
+      } else if (responseData.errors && Array.isArray(responseData.errors)) {
+        errorMessage = responseData.errors.join(', ');
+      }
+    }
+    
     return {
-      message: axiosError.response?.data?.message || axiosError.message,
+      message: errorMessage,
       status: axiosError.response?.status,
-      details: axiosError.response?.data
+      details: responseData
     };
   }
+  
   return { 
     message: error instanceof Error ? error.message : 'An unknown error occurred' 
   };
