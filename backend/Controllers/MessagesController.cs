@@ -146,7 +146,9 @@ namespace ChatRoom.Api.Controllers
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Forbid(ex.Message);
+                // Fix: Forbid() doesn't take a message parameter
+                _logger.LogWarning($"Unauthorized access: {ex.Message}");
+                return Forbid();
             }
             catch (ArgumentException ex)
             {
@@ -184,7 +186,9 @@ namespace ChatRoom.Api.Controllers
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Forbid(ex.Message);
+                // Fix: Forbid() doesn't take a message parameter
+                _logger.LogWarning($"Unauthorized access: {ex.Message}");
+                return Forbid();
             }
             catch (Exception ex)
             {
