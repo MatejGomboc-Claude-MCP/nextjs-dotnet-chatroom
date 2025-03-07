@@ -29,6 +29,7 @@ namespace ChatRoom.Api.Models.DTOs
     {
         [Required(ErrorMessage = "Message text is required")]
         [StringLength(1000, MinimumLength = 1, ErrorMessage = "Message text must be between 1 and 1000 characters")]
+        [NoSpecialCharacters(ErrorMessage = "Message text cannot contain special characters for security reasons")]
         public string Text { get; set; } = string.Empty;
         
         [Required(ErrorMessage = "Username is required")]
@@ -41,6 +42,7 @@ namespace ChatRoom.Api.Models.DTOs
     {
         [Required(ErrorMessage = "Message text is required")]
         [StringLength(1000, MinimumLength = 1, ErrorMessage = "Message text must be between 1 and 1000 characters")]
+        [NoSpecialCharacters(ErrorMessage = "Message text cannot contain special characters for security reasons")]
         public string Text { get; set; } = string.Empty;
         
         [Required(ErrorMessage = "Username is required")]
@@ -62,7 +64,7 @@ namespace ChatRoom.Api.Models.DTOs
             string stringValue = value.ToString();
             
             // Check if the string contains any special characters
-            bool containsSpecialChars = !Regex.IsMatch(stringValue, @"^[a-zA-Z0-9\s]+$");
+            bool containsSpecialChars = !Regex.IsMatch(stringValue, @"^[a-zA-Z0-9\s.,!?()]+$");
             
             if (containsSpecialChars)
             {
