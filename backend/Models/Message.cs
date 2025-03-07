@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace ChatRoom.Api.Models
@@ -19,5 +20,8 @@ namespace ChatRoom.Api.Models
         public bool IsEdited { get; set; } = false;
         
         public DateTime? EditedAt { get; set; } = null;
+        
+        // Navigation property for reactions
+        public virtual ICollection<MessageReaction> Reactions { get; set; } = new List<MessageReaction>();
     }
 }
