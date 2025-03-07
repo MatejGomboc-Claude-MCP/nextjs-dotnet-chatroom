@@ -5,6 +5,7 @@ interface PaginationProps {
   totalPages: number;
   onPageChange: (page: number) => void;
   className?: string;
+  disabled?: boolean;
 }
 
 const Pagination: React.FC<PaginationProps> = ({
@@ -12,6 +13,7 @@ const Pagination: React.FC<PaginationProps> = ({
   totalPages,
   onPageChange,
   className = '',
+  disabled = false,
 }) => {
   // Don't show pagination if there's only one page
   if (totalPages <= 1) {
@@ -63,12 +65,19 @@ const Pagination: React.FC<PaginationProps> = ({
     return pages;
   };
 
+  // Handle page change with disabled state check
+  const handlePageChange = (page: number) => {
+    if (!disabled && page !== currentPage) {
+      onPageChange(page);
+    }
+  };
+
   return (
-    <div className={`pagination ${className}`}>
+    <div className={`pagination ${className} ${disabled ? 'disabled' : ''}`}>
       <button
         className="pagination-button previous"
-        onClick={() => onPageChange(currentPage - 1)}
-        disabled={currentPage === 1}
+        onClick={() => handlePageChange(currentPage - 1)}
+        disabled={currentPage === 1 || disabled}
         aria-label="Previous page"
       >
         &laquo; Previous
@@ -85,8 +94,8 @@ const Pagination: React.FC<PaginationProps> = ({
             <button
               key={page}
               className={`pagination-button ${page === currentPage ? 'active' : ''}`}
-              onClick={() => onPageChange(page)}
-              disabled={page === currentPage}
+              onClick={() => handlePageChange(page)}
+              disabled={page === currentPage || disabled}
               aria-label={`Page ${page}`}
               aria-current={page === currentPage ? 'page' : undefined}
             >
@@ -98,8 +107,8 @@ const Pagination: React.FC<PaginationProps> = ({
       
       <button
         className="pagination-button next"
-        onClick={() => onPageChange(currentPage + 1)}
-        disabled={currentPage === totalPages}
+        onClick={() => handlePageChange(currentPage + 1)}
+        disabled={currentPage === totalPages || disabled}
         aria-label="Next page"
       >
         Next &raquo;
