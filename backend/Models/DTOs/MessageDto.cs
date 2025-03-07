@@ -19,9 +19,25 @@ namespace ChatRoom.Api.Models.DTOs
         
         [Required]
         public string Timestamp { get; set; } = string.Empty;
+        
+        public bool IsEdited { get; set; } = false;
+        
+        public string? EditedAt { get; set; } = null;
     }
 
     public class CreateMessageDto
+    {
+        [Required(ErrorMessage = "Message text is required")]
+        [StringLength(1000, MinimumLength = 1, ErrorMessage = "Message text must be between 1 and 1000 characters")]
+        public string Text { get; set; } = string.Empty;
+        
+        [Required(ErrorMessage = "Username is required")]
+        [StringLength(20, MinimumLength = 3, ErrorMessage = "Username must be between 3 and 20 characters")]
+        [RegularExpression(@"^[a-zA-Z0-9_]+$", ErrorMessage = "Username can only contain letters, numbers, and underscores")]
+        public string Username { get; set; } = string.Empty;
+    }
+    
+    public class UpdateMessageDto
     {
         [Required(ErrorMessage = "Message text is required")]
         [StringLength(1000, MinimumLength = 1, ErrorMessage = "Message text must be between 1 and 1000 characters")]
