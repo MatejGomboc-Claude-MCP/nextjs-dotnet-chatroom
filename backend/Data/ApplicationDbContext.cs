@@ -11,6 +11,7 @@ namespace ChatRoom.Api.Data
         }
 
         public DbSet<Message> Messages { get; set; } = null!;
+        public DbSet<MessageReaction> MessageReactions { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -31,6 +32,32 @@ namespace ChatRoom.Api.Data
             modelBuilder.Entity<Message>()
                 .Property(m => m.Timestamp)
                 .IsRequired();
+                
+            // Configure MessageReaction entity
+            modelBuilder.Entity<MessageReaction>()
+                .HasKey(r => r.Id);
+                
+            modelBuilder.Entity<MessageReaction>()
+                .Property(r => r.Emoji)
+                .IsRequired()
+                .HasMaxLength(10);
+                
+            modelBuilder.Entity<MessageReaction>()
+                .Property(r => r.Username)
+                .IsRequired()
+                .HasMaxLength(50);
+                
+            // Configure relationship
+            modelBuilder.Entity<MessageReaction>()
+                .HasOne(r => r.Message)
+                .WithMany(m => m.Reactions)
+                .HasForeignKey(r => r.MessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+                
+            // Add unique constraint to prevent duplicate reactions from the same user
+            modelBuilder.Entity<MessageReaction>()
+                .HasIndex(r => new { r.MessageId, r.Username, r.Emoji })
+                .IsUnique();
         }
     }
 }
