@@ -1,0 +1,152 @@
+.message-actions {
+  position: relative;
+  margin-left: 0.5rem;
+  
+  .message-actions-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    border: none;
+    padding: 0;
+    
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+    
+    .dots {
+      font-size: 1rem;
+      font-weight: bold;
+      color: #6c757d;
+    }
+  }
+  
+  .message-actions-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 10;
+    width: 6rem;
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    padding: 0.25rem 0;
+    margin-top: 0.25rem;
+    
+    &::before {
+      content: '';
+      position: absolute;
+      top: -0.5rem;
+      right: 0.5rem;
+      width: 0;
+      height: 0;
+      border-left: 0.5rem solid transparent;
+      border-right: 0.5rem solid transparent;
+      border-bottom: 0.5rem solid white;
+      z-index: 1;
+    }
+    
+    &::after {
+      content: '';
+      position: absolute;
+      top: -0.5rem;
+      right: 0.5rem;
+      width: 0;
+      height: 0;
+      border-left: 0.5rem solid transparent;
+      border-right: 0.5rem solid transparent;
+      border-bottom: 0.5rem solid #dee2e6;
+      z-index: 0;
+      margin-top: -1px;
+    }
+    
+    .message-action-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.375rem 0.75rem;
+      background-color: transparent;
+      border: none;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      
+      &:hover {
+        background-color: #f8f9fa;
+      }
+      
+      &.delete-btn {
+        color: #dc3545;
+      }
+    }
+  }
+}
+
+// Edit message form styles
+.edit-message-form {
+  margin-top: 0.5rem;
+  
+  .edit-message-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    
+    &:focus {
+      outline: none;
+      border-color: #86b7fe;
+      box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+    
+    &:disabled {
+      background-color: #e9ecef;
+      cursor: not-allowed;
+    }
+  }
+  
+  .edit-message-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    
+    button {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      
+      &:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+      }
+    }
+    
+    .cancel-edit-btn {
+      background-color: #f8f9fa;
+      border: 1px solid #ced4da;
+      
+      &:hover:not(:disabled) {
+        background-color: #e9ecef;
+      }
+    }
+    
+    .save-edit-btn {
+      background-color: #0d6efd;
+      border: 1px solid #0d6efd;
+      color: white;
+      
+      &:hover:not(:disabled) {
+        background-color: #0b5ed7;
+        border-color: #0a58ca;
+      }
+    }
+  }
+}
