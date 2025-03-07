@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import DOMPurify from 'dompurify';
 import MessageActions from './MessageActions';
+import MessageReactions, { ReactionsMap } from './MessageReactions';
 
 interface MessageProps {
   message: {
@@ -14,12 +15,21 @@ interface MessageProps {
   };
   onEditMessage?: (messageId: string, newText: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => Promise<void>;
+  // Add missing properties for reactions
+  reactions: ReactionsMap;
+  onAddReaction: (messageId: string, emoji: string) => Promise<void>;
+  onRemoveReaction: (messageId: string, emoji: string) => Promise<void>;
+  currentUsername: string;
 }
 
 const MessageItem: React.FC<MessageProps> = ({ 
   message, 
   onEditMessage, 
-  onDeleteMessage 
+  onDeleteMessage,
+  reactions,
+  onAddReaction,
+  onRemoveReaction,
+  currentUsername
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
@@ -137,6 +147,17 @@ const MessageItem: React.FC<MessageProps> = ({
         </form>
       ) : (
         <div className="message-content">{sanitizedText}</div>
+      )}
+      
+      {/* Add message reactions component */}
+      {!isSystemMessage && (
+        <MessageReactions
+          messageId={message.id}
+          reactions={reactions}
+          currentUsername={currentUsername}
+          onAddReaction={onAddReaction}
+          onRemoveReaction={onRemoveReaction}
+        />
       )}
     </div>
   );
