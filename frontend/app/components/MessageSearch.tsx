@@ -3,16 +3,21 @@ import React, { useState } from 'react';
 interface MessageSearchProps {
   onSearch: (query: string) => void;
   onClearSearch: () => void;
+  disabled?: boolean;
 }
 
-const MessageSearch: React.FC<MessageSearchProps> = ({ onSearch, onClearSearch }) => {
+const MessageSearch: React.FC<MessageSearchProps> = ({ 
+  onSearch, 
+  onClearSearch,
+  disabled = false 
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (searchQuery.trim()) {
+    if (searchQuery.trim() && !disabled) {
       onSearch(searchQuery.trim());
     }
   };
@@ -23,6 +28,11 @@ const MessageSearch: React.FC<MessageSearchProps> = ({ onSearch, onClearSearch }
   };
   
   const toggleExpand = () => {
+    // If disabled, don't allow expanding
+    if (disabled && !isExpanded) {
+      return;
+    }
+    
     setIsExpanded(!isExpanded);
     if (isExpanded && searchQuery) {
       handleClear();
@@ -30,11 +40,12 @@ const MessageSearch: React.FC<MessageSearchProps> = ({ onSearch, onClearSearch }
   };
   
   return (
-    <div className={`message-search ${isExpanded ? 'expanded' : ''}`}>
+    <div className={`message-search ${isExpanded ? 'expanded' : ''} ${disabled ? 'disabled' : ''}`}>
       <button 
         className="search-toggle"
         onClick={toggleExpand}
         aria-label={isExpanded ? "Close search" : "Open search"}
+        disabled={disabled && !isExpanded} // Allow closing even when disabled
       >
         <span className="search-icon">🔍</span>
       </button>
@@ -45,10 +56,11 @@ const MessageSearch: React.FC<MessageSearchProps> = ({ onSearch, onClearSearch }
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search messages..."
+            placeholder={disabled ? "Search unavailable" : "Search messages..."}
             aria-label="Search messages"
             className="search-input"
             autoFocus
+            disabled={disabled}
           />
           
           {searchQuery && (
@@ -57,6 +69,7 @@ const MessageSearch: React.FC<MessageSearchProps> = ({ onSearch, onClearSearch }
               className="clear-search"
               onClick={handleClear}
               aria-label="Clear search"
+              disabled={disabled}
             >
               ×
             </button>
@@ -65,7 +78,7 @@ const MessageSearch: React.FC<MessageSearchProps> = ({ onSearch, onClearSearch }
           <button 
             type="submit"
             className="submit-search"
-            disabled={!searchQuery.trim()}
+            disabled={!searchQuery.trim() || disabled}
             aria-label="Submit search"
           >
             Search
