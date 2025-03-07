@@ -21,6 +21,7 @@ export interface TypingStatus {
 
 // Reconnection configuration
 const RECONNECT_INTERVALS = [0, 2000, 5000, 10000, 15000, 30000]; // Increasing intervals in milliseconds
+const TYPING_TIMEOUT = 3000; // 3 seconds timeout for typing indicator
 
 // Chat connection class to manage SignalR connection
 class ChatConnection {
@@ -31,10 +32,17 @@ class ChatConnection {
   private reconnectAttempt: number = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentUsername: string = '';
+  private typingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private isCurrentlyTyping: boolean = false;
   
   // Initialize the connection
   async start(username: string): Promise<void> {
     try {
+      // Clear any existing connection first
+      if (this.connection) {
+        await this.stop();
+      }
+      
       this.currentUsername = username;
       
       // Build the connection with more resilient options
@@ -74,9 +82,7 @@ class ChatConnection {
   
   // Handle connection errors with exponential backoff
   private handleConnectionError(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
+    this.clearReconnectTimer();
     
     if (this.reconnectAttempt < RECONNECT_INTERVALS.length) {
       const delay = RECONNECT_INTERVALS[this.reconnectAttempt];
@@ -95,23 +101,54 @@ class ChatConnection {
     }
   }
   
-  // Stop the connection
-  async stop(): Promise<void> {
+  // Clear reconnect timer
+  private clearReconnectTimer(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+  
+  // Clear typing timeout
+  private clearTypingTimeout(): void {
+    if (this.typingTimeoutId) {
+      clearTimeout(this.typingTimeoutId);
+      this.typingTimeoutId = null;
+    }
+  }
+  
+  // Stop the connection
+  async stop(): Promise<void> {
+    // Clear all timers
+    this.clearReconnectTimer();
+    this.clearTypingTimeout();
+    
+    // Reset typing status if active
+    if (this.isCurrentlyTyping && this.currentUsername) {
+      try {
+        // Try to send that user stopped typing
+        if (this.connection && this.connection.state === 'Connected') {
+          await this.connection.invoke('SendTypingStatus', { 
+            username: this.currentUsername, 
+            isTyping: false 
+          });
+        }
+      } catch (err) {
+        console.error('Error clearing typing status on disconnect:', err);
+      }
+      this.isCurrentlyTyping = false;
     }
     
     if (this.connection) {
       try {
         await this.connection.stop();
         console.log('SignalR connection stopped');
-        this.notifyConnectionListeners(false);
       } catch (error) {
         console.error('Error stopping SignalR connection:', error);
       } finally {
         this.connection = null;
         this.currentUsername = '';
+        this.notifyConnectionListeners(false);
       }
     }
   }
@@ -123,6 +160,13 @@ class ChatConnection {
     }
     
     try {
+      // Clear typing status when sending a message
+      if (this.isCurrentlyTyping) {
+        this.clearTypingTimeout();
+        this.isCurrentlyTyping = false;
+        await this.sendTypingStatus(username, false);
+      }
+      
       await this.connection.invoke('SendMessage', { text, username });
     } catch (error) {
       console.error('Error sending message:', error);
@@ -145,7 +189,24 @@ class ChatConnection {
     }
     
     try {
-      await this.connection.invoke('SendTypingStatus', { username, isTyping });
+      // Only send if status changed
+      if (isTyping !== this.isCurrentlyTyping) {
+        await this.connection.invoke('SendTypingStatus', { username, isTyping });
+        this.isCurrentlyTyping = isTyping;
+      }
+      
+      // Set a timeout to automatically clear typing status
+      if (isTyping) {
+        this.clearTypingTimeout();
+        this.typingTimeoutId = setTimeout(async () => {
+          if (this.isCurrentlyTyping) {
+            this.isCurrentlyTyping = false;
+            await this.sendTypingStatus(username, false);
+          }
+        }, TYPING_TIMEOUT);
+      } else {
+        this.clearTypingTimeout();
+      }
     } catch (error) {
       console.error('Error sending typing status:', error);
       // Don't throw here to avoid interrupting normal flow
@@ -189,7 +250,7 @@ class ChatConnection {
       console.log('SignalR connection closed', error);
       this.notifyConnectionListeners(false);
       
-      // Try to reconnect if closed unexpectedly
+      // Try to reconnect if closed unexpectedly and we have a username
       if (this.currentUsername) {
         this.handleConnectionError();
       }
