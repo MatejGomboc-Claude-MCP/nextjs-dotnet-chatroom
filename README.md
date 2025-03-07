@@ -32,6 +32,13 @@ A simple chatroom web application with a NextJS frontend and .NET Core backend, 
 - Automated testing for both frontend and backend
 - Reconnection handling for network interruptions
 - Auto-scroll with smart behavior based on user interaction
+- Active users list with online status
+- Message editing and deletion capabilities
+- Message reactions with emoji support
+- Message search functionality
+- Browser notifications for new messages
+- Username uniqueness validation
+- Read receipts and edit timestamps
 
 ## Project Structure
 
@@ -187,11 +194,24 @@ echo "0 2 * * * root MARIADB_PASSWORD=your_secure_password /path/to/repo/scripts
 
 The application uses SignalR for real-time communication. The SignalR hub is available at `/chatHub` with the following methods:
 
-- `JoinRoom` - Join the chat room (client to server)
-- `SendMessage` - Send a message (client to server)
-- `SendTypingStatus` - Send typing status (client to server)
-- `message` - Receive a message (server to client)
-- `typingStatus` - Receive typing status (server to client)
+### Client to Server Methods
+- `JoinRoom` - Join the chat room
+- `SendMessage` - Send a message
+- `SendTypingStatus` - Send typing status
+- `EditMessage` - Edit an existing message
+- `DeleteMessage` - Delete a message
+- `AddReaction` - Add an emoji reaction to a message
+- `RemoveReaction` - Remove an emoji reaction from a message
+- `GetReactions` - Get all reactions for a message
+- `GetActiveUsers` - Get a list of active users in the chat
+
+### Server to Client Events
+- `message` - Receive a new message
+- `typingStatus` - Receive typing status updates
+- `messageEdited` - Message edited notification
+- `messageDeleted` - Message deleted notification
+- `messageReactions` - Updated reactions for a message
+- `activeUsers` - Updated list of active users
 
 ## Security Features
 
@@ -205,21 +225,36 @@ The application uses SignalR for real-time communication. The SignalR hub is ava
 - Content sanitization to prevent XSS attacks
 - CORS configuration with proper origins
 - Automatic reconnection with exponential backoff
+- Username uniqueness validation
+- Proper input sanitization
 
 ## Recent Updates
 
-- Fixed SignalR integration on the frontend (replaced Socket.IO)
-- Added proper error handling and user feedback
-- Improved username validation and input sanitization
-- Added typing indicators integration
-- Added user leave notifications
-- Fixed API URL handling for health checks and other endpoints
-- Added error boundaries for React error handling
-- Added security headers in Next.js configuration
-- Improved environment variable handling for production builds
-- Added unit testing for both frontend and backend
-- Implemented proper pagination with auto-scroll functionality
-- Enhanced SignalR reconnection handling
+- Added active users list with online status display
+- Implemented message editing and deletion capabilities
+- Added emoji reactions to messages
+- Added message search functionality
+- Implemented browser notifications for new messages
+- Added typing indicator timeout to prevent ghost indicators
+- Fixed username uniqueness validation
+- Enhanced error handling in both frontend and backend
+- Improved input sanitization to prevent XSS attacks
+- Enhanced SignalR service with comprehensive event handling
+- Improved reconnection logic with exponential backoff
+- Added read receipts and edit timestamps
+- Improved responsive design for mobile devices
+
+## Future Improvements
+
+Some potential future enhancements include:
+
+1. Advanced user authentication with user accounts and JWT tokens
+2. File sharing capabilities for images and documents
+3. Multiple chat rooms support
+4. User profiles with avatars and custom settings
+5. Message threading for replies to specific messages
+6. Rich text formatting support (Markdown)
+7. End-to-end encryption for private conversations
 
 ## License
 
