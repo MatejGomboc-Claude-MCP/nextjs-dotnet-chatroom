@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { 
   chatConnection, 
   Message as SignalRMessage, 
-  TypingStatus 
+  TypingStatus,
+  ConnectionStatus
 } from '../services/signalr';
 import { messagesApi, userApi, handleApiError } from '../services/api';
 import MessageItem from '../components/MessageItem';
@@ -35,13 +36,13 @@ export default function ChatPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [username, setUsername] = useState('');
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [pageSize] = useState(50);
+  const [pageSize] = useState(Number(process.env.NEXT_PUBLIC_MAX_MESSAGES) || 50);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Message[]>([]);
   const [messageReactions, setMessageReactions] = useState<{[messageId: string]: ReactionsMap}>({});
@@ -56,7 +57,8 @@ export default function ChatPage() {
   // Request notification permissions on component mount
   useEffect(() => {
     const requestPermission = async () => {
-      if (notificationService.isSupported()) {
+      if (notificationService.isSupported() && 
+          process.env.NEXT_PUBLIC_ENABLE_NOTIFICATIONS !== 'false') {
         const hasPermission = await notificationService.requestPermission();
         setNotificationsEnabled(hasPermission);
       }
@@ -162,9 +164,16 @@ export default function ChatPage() {
     const setupSignalR = async () => {
       try {
         // Connection status listener
-        const unsubscribeConnection = chatConnection.onConnectionChange((connected) => {
-          setIsConnected(connected);
-          setConnectionError(connected ? null : 'Connection to chat server lost. Attempting to reconnect...');
+        const unsubscribeConnection = chatConnection.onConnectionChange((status) => {
+          setConnectionStatus(status);
+          
+          if (status === 'connected') {
+            setConnectionError(null);
+          } else if (status === 'disconnected') {
+            setConnectionError('Connection to chat server lost. Attempting to reconnect...');
+          } else if (status === 'connecting') {
+            setConnectionError('Connecting to chat server...');
+          }
         });
 
         // Message listener
@@ -177,8 +186,11 @@ export default function ChatPage() {
             }]);
             
             // Show notification if window is not focused and message is not from current user
-            if (!windowHasFocus && notificationsEnabled && message.username !== storedUsername && message.username !== 'System') {
-              notificationService.showNotification(`${message.username}: ${message.text.substring(0, 50)}${message.text.length > 50 ? '...' : ''}`);
+            if (!windowHasFocus && notificationsEnabled && 
+                message.username !== storedUsername && message.username !== 'System') {
+              notificationService.showNotification(
+                `${message.username}: ${message.text.substring(0, 50)}${message.text.length > 50 ? '...' : ''}`
+              );
             }
           } else if (!searching) {
             // Show notification that new messages are available
@@ -227,6 +239,13 @@ export default function ChatPage() {
         const unsubscribeMessageDeleted = chatConnection.onMessageDeleted((data: { messageId: string }) => {
           setMessages(prevMessages => prevMessages.filter(msg => msg.id !== data.messageId));
           setSearchResults(prevResults => prevResults.filter(msg => msg.id !== data.messageId));
+          
+          // Also remove reactions for this message
+          setMessageReactions(prev => {
+            const updated = { ...prev };
+            delete updated[data.messageId];
+            return updated;
+          });
         });
 
         // Message reactions listener
@@ -300,7 +319,7 @@ export default function ChatPage() {
   }, []);
 
   const sendMessage = async (text: string) => {
-    if (!text.trim() || !isConnected) return;
+    if (!text.trim() || connectionStatus !== 'connected') return;
 
     try {
       // Send message via SignalR
@@ -322,7 +341,7 @@ export default function ChatPage() {
   };
 
   const sendTypingStatus = async (isTyping: boolean) => {
-    if (!isConnected) return;
+    if (connectionStatus !== 'connected') return;
     
     try {
       await chatConnection.sendTypingStatus(username, isTyping);
@@ -333,7 +352,7 @@ export default function ChatPage() {
   };
 
   const editMessage = async (messageId: string, newText: string) => {
-    if (!newText.trim() || !isConnected) return;
+    if (!newText.trim() || connectionStatus !== 'connected') return;
     
     try {
       await chatConnection.editMessage(messageId, newText, username);
@@ -344,7 +363,7 @@ export default function ChatPage() {
   };
 
   const deleteMessage = async (messageId: string) => {
-    if (!isConnected) return;
+    if (connectionStatus !== 'connected') return;
     
     try {
       await chatConnection.deleteMessage(messageId, username);
@@ -355,7 +374,7 @@ export default function ChatPage() {
   };
 
   const addReaction = async (messageId: string, emoji: string) => {
-    if (!isConnected) return;
+    if (connectionStatus !== 'connected') return;
     
     try {
       await chatConnection.addReaction(messageId, emoji, username);
@@ -365,7 +384,7 @@ export default function ChatPage() {
   };
 
   const removeReaction = async (messageId: string, emoji: string) => {
-    if (!isConnected) return;
+    if (connectionStatus !== 'connected') return;
     
     try {
       await chatConnection.removeReaction(messageId, emoji, username);
@@ -379,6 +398,20 @@ export default function ChatPage() {
     setShowUsersList(!showUsersList);
   };
 
+  // Get connection status label for display
+  const getConnectionStatusLabel = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return 'Connected';
+      case 'connecting':
+        return 'Connecting...';
+      case 'disconnected':
+        return 'Disconnected';
+      default:
+        return 'Unknown';
+    }
+  };
+
   return (
     <div className="chat-container">
       <div className="chat-header">
@@ -387,6 +420,7 @@ export default function ChatPage() {
           <MessageSearch 
             onSearch={searchMessages}
             onClearSearch={clearSearch}
+            disabled={connectionStatus !== 'connected'}
           />
           <button
             className="toggle-users-list"
@@ -400,8 +434,8 @@ export default function ChatPage() {
         <div className="user-info">
           <span>Logged in as: </span>
           <strong>{username}</strong>
-          <span className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
-            {isConnected ? 'Connected' : 'Disconnected'}
+          <span className={`connection-status ${connectionStatus}`}>
+            {getConnectionStatusLabel()}
           </span>
         </div>
       </div>
@@ -417,6 +451,7 @@ export default function ChatPage() {
                 currentPage={currentPage}
                 totalPages={totalPages}
                 onPageChange={handlePageChange}
+                disabled={connectionStatus !== 'connected'}
               />
             </div>
           )}
@@ -498,7 +533,8 @@ export default function ChatPage() {
           <ChatInput 
             onSendMessage={sendMessage} 
             onTypingStatusChange={sendTypingStatus}
-            disabled={!isConnected}
+            disabled={connectionStatus !== 'connected'}
+            connectionStatus={connectionStatus}
           />
         </div>
         
