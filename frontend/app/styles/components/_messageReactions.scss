@@ -1,0 +1,121 @@
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+  align-items: center;
+  
+  .reactions-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    
+    .reaction-item {
+      display: flex;
+      align-items: center;
+      background-color: #f1f3f5;
+      border: 1px solid #dee2e6;
+      border-radius: 1rem;
+      padding: 0.125rem 0.5rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      
+      &:hover {
+        background-color: #e9ecef;
+      }
+      
+      &.user-reacted {
+        background-color: #e7f5ff;
+        border-color: #a5d8ff;
+      }
+      
+      .reaction-emoji {
+        margin-right: 0.25rem;
+      }
+      
+      .reaction-count {
+        font-size: 0.75rem;
+        color: #495057;
+      }
+    }
+  }
+  
+  .reaction-selector-wrapper {
+    position: relative;
+    
+    .add-reaction-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background-color: transparent;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      border: 1px solid #dee2e6;
+      padding: 0;
+      font-size: 0.875rem;
+      
+      &:hover {
+        background-color: #e9ecef;
+      }
+      
+      .add-reaction-icon {
+        opacity: 0.7;
+      }
+    }
+    
+    .reaction-selector {
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      display: flex;
+      gap: 0.25rem;
+      padding: 0.5rem;
+      background-color: white;
+      border: 1px solid #dee2e6;
+      border-radius: 0.25rem;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      margin-bottom: 0.5rem;
+      z-index: 10;
+      
+      &::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 0.5rem;
+        width: 0;
+        height: 0;
+        border-left: 0.5rem solid transparent;
+        border-right: 0.5rem solid transparent;
+        border-top: 0.5rem solid white;
+      }
+      
+      .emoji-option {
+        font-size: 1rem;
+        width: 2rem;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        transition: transform 0.1s, background-color 0.2s;
+        
+        &:hover {
+          background-color: #e9ecef;
+          transform: scale(1.1);
+        }
+        
+        &.selected {
+          background-color: #e7f5ff;
+          border-color: #a5d8ff;
+        }
+      }
+    }
+  }
+}
