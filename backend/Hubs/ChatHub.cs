@@ -18,24 +18,18 @@ namespace ChatRoom.Api.Hubs
         private readonly ILogger<ChatHub> _logger;
         private readonly IReactionService _reactionService;
         
-        // Map connection IDs to usernames and connection time
+        // Map connection IDs to user connection info
         private static readonly ConcurrentDictionary<string, UserConnection> _connectedUsers = new();
-        // Reverse mapping to easily check for duplicates (username -> connectionId)
-        private static readonly ConcurrentDictionary<string, string> _usernameToConnectionId = new();
+        // Map username to multiple session IDs
+        private static readonly ConcurrentDictionary<string, HashSet<string>> _usernameToSessions = new();
+        // Map session ID to connection ID
+        private static readonly ConcurrentDictionary<string, string> _sessionToConnectionId = new();
         // HTML encoder for sanitization
         private static readonly HtmlEncoder _htmlEncoder = HtmlEncoder.Default;
         // Valid emojis for reactions
         private static readonly HashSet<string> _validEmojis = new() { "👍", "❤️", "😂", "😮", "😢", "👏" };
         // Connection timeout (minutes)
         private const int ConnectionTimeoutMinutes = 30;
-
-        // Track user connection with timestamp
-        private class UserConnection
-        {
-            public string Username { get; set; } = string.Empty;
-            public DateTime ConnectedAt { get; set; } = DateTime.UtcNow;
-            public DateTime LastActivity { get; set; } = DateTime.UtcNow;
-        }
 
         public ChatHub(ILogger<ChatHub> logger, IReactionService reactionService)
         {
@@ -53,33 +47,48 @@ namespace ChatRoom.Api.Hubs
         {
             _logger.LogInformation($"Client disconnected: {Context.ConnectionId}");
             
-            // If we have a username associated with this connection, notify others
+            // If we have a user connection associated with this connection, clean up
             if (_connectedUsers.TryRemove(Context.ConnectionId, out var userConnection))
             {
                 string username = userConnection.Username;
-                // Try to remove from reverse mapping only if this connection owns the username
-                if (_usernameToConnectionId.TryGetValue(username, out string currentConnectionId) && 
-                    currentConnectionId == Context.ConnectionId)
+                string sessionId = userConnection.SessionId;
+                
+                // Remove session mapping
+                _sessionToConnectionId.TryRemove(sessionId, out _);
+                
+                // Remove from username sessions
+                if (_usernameToSessions.TryGetValue(username, out var sessions))
                 {
-                    _usernameToConnectionId.TryRemove(username, out _);
+                    // Remove this session from the set
+                    sessions.Remove(sessionId);
                     
-                    _logger.LogInformation($"User {username} left the chat");
-                    
-                    // Broadcast a message to notify everyone that a user has left
-                    await Clients.Others.SendAsync(
-                        "message", 
-                        new MessageDto
-                        {
-                            Id = Guid.NewGuid().ToString(),
-                            Text = $"{username} has left the chat",
-                            Username = "System",
-                            Timestamp = DateTime.UtcNow.ToString("o")
-                        }
-                    );
-
-                    // Send updated list of active users
-                    await BroadcastActiveUsers();
+                    // If no more sessions for this username, remove the username mapping
+                    if (sessions.Count == 0)
+                    {
+                        _usernameToSessions.TryRemove(username, out _);
+                        
+                        // Send notification that the user has left completely
+                        _logger.LogInformation($"User {username} left the chat (all sessions disconnected)");
+                        
+                        await Clients.Others.SendAsync(
+                            "message", 
+                            new MessageDto
+                            {
+                                Id = Guid.NewGuid().ToString(),
+                                Text = $"{username} has left the chat",
+                                Username = "System",
+                                Timestamp = DateTime.UtcNow.ToString("o")
+                            }
+                        );
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"User {username} disconnected one session, but still has {sessions.Count} active sessions");
+                    }
                 }
+                
+                // Send updated list of active users
+                await BroadcastActiveUsers();
             }
             
             await base.OnDisconnectedAsync(exception);
@@ -90,6 +99,7 @@ namespace ChatRoom.Api.Hubs
         {
             var now = DateTime.UtcNow;
             var expiredConnections = new List<string>();
+            var usersToNotify = new HashSet<string>();
             
             // Find expired connections
             foreach (var connection in _connectedUsers)
@@ -97,6 +107,9 @@ namespace ChatRoom.Api.Hubs
                 if ((now - connection.Value.LastActivity).TotalMinutes > ConnectionTimeoutMinutes)
                 {
                     expiredConnections.Add(connection.Key);
+                    
+                    // Keep track of which usernames we need to check for full disconnection
+                    usersToNotify.Add(connection.Value.Username);
                 }
             }
             
@@ -106,28 +119,22 @@ namespace ChatRoom.Api.Hubs
                 if (_connectedUsers.TryRemove(connectionId, out var userConnection))
                 {
                     string username = userConnection.Username;
+                    string sessionId = userConnection.SessionId;
                     
-                    // Only remove the username mapping if it still points to this connection
-                    if (_usernameToConnectionId.TryGetValue(username, out string currentConnectionId) && 
-                        currentConnectionId == connectionId)
+                    // Remove session mapping
+                    _sessionToConnectionId.TryRemove(sessionId, out _);
+                    
+                    // Remove from username sessions
+                    if (_usernameToSessions.TryGetValue(username, out var sessions))
                     {
-                        _usernameToConnectionId.TryRemove(username, out _);
+                        // Remove this session from the set
+                        sessions.Remove(sessionId);
                         
-                        // Notify clients that this user has left
-                        await hubContext.Clients.All.SendAsync(
-                            "message",
-                            new MessageDto
-                            {
-                                Id = Guid.NewGuid().ToString(),
-                                Text = $"{username} has left the chat (connection timeout)",
-                                Username = "System",
-                                Timestamp = DateTime.UtcNow.ToString("o")
-                            }
-                        );
-                        
-                        // Update active users list
-                        await hubContext.Clients.All.SendAsync("activeUsers", 
-                            _connectedUsers.Values.Select(u => u.Username).Distinct().ToList());
+                        // If no more sessions for this username, remove the username mapping
+                        if (sessions.Count == 0)
+                        {
+                            _usernameToSessions.TryRemove(username, out _);
+                        }
                     }
                     
                     // Try to disconnect the client
@@ -136,11 +143,43 @@ namespace ChatRoom.Api.Hubs
                         await hubContext.Clients.Client(connectionId).SendAsync("disconnected", 
                             "Your connection has timed out due to inactivity");
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
                         // Connection might already be closed
+                        _logger.LogDebug($"Error sending disconnect message: {ex.Message}");
                     }
                 }
+            }
+            
+            // Notify about users who have fully disconnected
+            foreach (var username in usersToNotify)
+            {
+                if (!_usernameToSessions.ContainsKey(username) || _usernameToSessions[username].Count == 0)
+                {
+                    // This user has no more active sessions, notify everyone
+                    await hubContext.Clients.All.SendAsync(
+                        "message",
+                        new MessageDto
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"{username} has left the chat (connection timeout)",
+                            Username = "System",
+                            Timestamp = DateTime.UtcNow.ToString("o")
+                        }
+                    );
+                }
+            }
+            
+            // Update active users if any connections were expired
+            if (expiredConnections.Count > 0)
+            {
+                // Get distinct usernames from remaining connections
+                var activeUsers = _connectedUsers.Values
+                    .Select(u => u.Username)
+                    .Distinct()
+                    .ToList();
+                
+                await hubContext.Clients.All.SendAsync("activeUsers", activeUsers);
             }
         }
 
@@ -150,6 +189,7 @@ namespace ChatRoom.Api.Hubs
             {
                 var dynamicData = (dynamic)userData;
                 string? username = dynamicData?.username;
+                string? sessionId = dynamicData?.sessionId;
 
                 // Validate username
                 if (string.IsNullOrEmpty(username))
@@ -167,65 +207,98 @@ namespace ChatRoom.Api.Hubs
                 {
                     return new { success = false, error = "Username can only contain letters, numbers, and underscores" };
                 }
-
-                // Check if username is already in use by another connection
-                if (_usernameToConnectionId.TryGetValue(username, out string existingConnectionId))
+                
+                // Validate session ID
+                if (string.IsNullOrEmpty(sessionId))
+                {
+                    sessionId = "session_" + Guid.NewGuid().ToString();
+                    _logger.LogWarning($"Client {Context.ConnectionId} provided no session ID. Generated: {sessionId}");
+                }
+                
+                // Update activity timestamp if this session is already connected
+                if (_sessionToConnectionId.TryGetValue(sessionId, out var existingConnectionId))
                 {
                     if (existingConnectionId != Context.ConnectionId)
                     {
-                        // If the existing connection is still active and not expired
-                        if (_connectedUsers.TryGetValue(existingConnectionId, out var existingConnection))
+                        // Same session ID but different connection - this might be a reconnect or duplicate
+                        // Remove the old connection
+                        if (_connectedUsers.TryRemove(existingConnectionId, out _))
                         {
-                            // Check if the connection has been inactive for more than 5 minutes
-                            if ((DateTime.UtcNow - existingConnection.LastActivity).TotalMinutes < 5)
-                            {
-                                return new { success = false, error = "Username is already in use" };
-                            }
+                            _logger.LogInformation($"Removed previous connection {existingConnectionId} for session {sessionId}");
                             
-                            // If inactive, take over the username
-                            _connectedUsers.TryRemove(existingConnectionId, out _);
-                            _logger.LogInformation($"Inactive connection {existingConnectionId} for username {username} has been replaced");
+                            try
+                            {
+                                // Tell old connection it's being replaced
+                                await Clients.Client(existingConnectionId).SendAsync("disconnected", 
+                                    "Your connection was replaced by a new session");
+                            }
+                            catch
+                            {
+                                // Ignore errors - connection might already be dead
+                            }
                         }
                     }
                 }
-
-                // Handle case where user is reconnecting with same username
-                // Remove any previous connection with this username
-                foreach (var conn in _connectedUsers.Where(c => c.Value.Username == username).ToList())
+                
+                // Check if username has a different user with that name
+                if (_usernameToSessions.TryGetValue(username, out var existingSessions))
                 {
-                    if (conn.Key != Context.ConnectionId)
+                    bool sessionExists = false;
+                    
+                    // Check if this specific session already exists for this username
+                    foreach (var session in existingSessions)
                     {
-                        _connectedUsers.TryRemove(conn.Key, out _);
-                        _logger.LogInformation($"Removed old connection {conn.Key} for username {username}");
+                        if (session == sessionId)
+                        {
+                            sessionExists = true;
+                            break;
+                        }
+                    }
+                    
+                    // If not the same session, this is a new connection for the same username
+                    if (!sessionExists)
+                    {
+                        _logger.LogInformation($"User {username} connected with a new session {sessionId}");
                     }
                 }
-
-                // Update or create user connection
+                else
+                {
+                    // First time this username is connecting
+                    _usernameToSessions[username] = new HashSet<string>();
+                    
+                    // Broadcast join message only for the first session of this user
+                    await Clients.Others.SendAsync(
+                        "message", 
+                        new MessageDto
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"{username} has joined the chat",
+                            Username = "System",
+                            Timestamp = DateTime.UtcNow.ToString("o")
+                        }
+                    );
+                }
+                
+                // Add this session to the username's sessions
+                _usernameToSessions[username].Add(sessionId);
+                
+                // Map session to connection
+                _sessionToConnectionId[sessionId] = Context.ConnectionId;
+                
+                // Create user connection object
                 var userConnection = new UserConnection
                 {
                     Username = username,
+                    SessionId = sessionId,
                     ConnectedAt = DateTime.UtcNow,
                     LastActivity = DateTime.UtcNow
                 };
                 
-                // Store username with connection id (both ways for easy lookup)
+                // Store connection info
                 _connectedUsers[Context.ConnectionId] = userConnection;
-                _usernameToConnectionId[username] = Context.ConnectionId;
                 
-                _logger.LogInformation($"User {username} joined the chat");
+                _logger.LogInformation($"User {username} joined with session {sessionId} (connection {Context.ConnectionId})");
                 
-                // Broadcast a message to notify everyone that a new user has joined
-                await Clients.Others.SendAsync(
-                    "message", 
-                    new MessageDto
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        Text = $"{username} has joined the chat",
-                        Username = "System",
-                        Timestamp = DateTime.UtcNow.ToString("o")
-                    }
-                );
-
                 // Send updated list of active users
                 await BroadcastActiveUsers();
                 
@@ -242,6 +315,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicMessage = (dynamic)messageData;
@@ -294,6 +368,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicData = (dynamic)typingData;
@@ -330,9 +405,14 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
-                var activeUsers = _connectedUsers.Values.Select(u => u.Username).Distinct().ToList();
+                var activeUsers = _connectedUsers.Values
+                    .Select(u => u.Username)
+                    .Distinct()
+                    .ToList();
+                
                 return new { success = true, users = activeUsers };
             }
             catch (Exception ex)
@@ -347,6 +427,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicData = (dynamic)messageData;
@@ -383,6 +464,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicData = (dynamic)messageData;
@@ -435,6 +517,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicData = (dynamic)reactionData;
@@ -502,6 +585,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicData = (dynamic)reactionData;
@@ -563,6 +647,7 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                // Update last activity
                 UpdateUserActivity();
                 
                 var dynamicData = (dynamic)messageData;
@@ -595,7 +680,11 @@ namespace ChatRoom.Api.Hubs
         // Broadcast active users to all clients
         private async Task BroadcastActiveUsers()
         {
-            var activeUsers = _connectedUsers.Values.Select(u => u.Username).Distinct().ToList();
+            var activeUsers = _connectedUsers.Values
+                .Select(u => u.Username)
+                .Distinct()
+                .ToList();
+                
             await Clients.All.SendAsync("activeUsers", activeUsers);
         }
 
@@ -630,19 +719,7 @@ namespace ChatRoom.Api.Hubs
             }
             
             // Check if the username matches
-            if (userConnection.Username != username)
-            {
-                return false;
-            }
-            
-            // Check if this connection is the current owner of the username
-            if (!_usernameToConnectionId.TryGetValue(username, out string currentConnectionId) ||
-                currentConnectionId != Context.ConnectionId)
-            {
-                return false;
-            }
-            
-            return true;
+            return userConnection.Username == username;
         }
     }
 }
