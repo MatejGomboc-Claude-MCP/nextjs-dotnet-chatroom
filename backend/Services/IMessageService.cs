@@ -12,5 +12,8 @@ namespace ChatRoom.Api.Services
         Task<PagedResultDto<MessageDto>> GetMessagesPagedAsync(int page, int pageSize);
         Task<MessageDto> GetMessageByIdAsync(Guid id);
         Task<MessageDto> CreateMessageAsync(string text, string username);
+        Task<MessageDto> UpdateMessageAsync(Guid id, string text, string username);
+        Task<bool> DeleteMessageAsync(Guid id, string username);
+        Task<PagedResultDto<MessageDto>> SearchMessagesAsync(string query, int page, int pageSize);
     }
 }
