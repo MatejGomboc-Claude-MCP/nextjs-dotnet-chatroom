@@ -15,5 +15,9 @@ namespace ChatRoom.Api.Models
         public string Username { get; set; } = string.Empty;
 
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        
+        public bool IsEdited { get; set; } = false;
+        
+        public DateTime? EditedAt { get; set; } = null;
     }
 }
