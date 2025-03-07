@@ -1,3 +1,9 @@
+/* Import component styles */
+@import 'components/usersList';
+@import 'components/messageReactions';
+@import 'components/messageSearch';
+@import 'components/messageActions';
+
 /* Error Message Component */
 .error-container {
   background-color: #fde8e8;
@@ -182,4 +188,69 @@
   margin: 0 0.25rem;
   color: var(--secondary-color);
   padding: 0.5rem 0.75rem;
+}
+
+/* Chat layout with sidebar for users list */
+.chat-layout {
+  display: flex;
+  height: calc(100vh - 9rem);
+  position: relative;
+  
+  .chat-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  .chat-sidebar {
+    width: 250px;
+    padding: 0.5rem;
+    border-left: 1px solid var(--light-gray);
+    background-color: var(--white);
+  }
+}
+
+/* Header actions */
+.chat-header {
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    
+    .toggle-users-list {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: transparent;
+      border: none;
+      padding: 0.25rem 0.5rem;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      transition: background-color 0.2s;
+      position: relative;
+      
+      &:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+      }
+      
+      .users-icon {
+        font-size: 1.25rem;
+        margin-right: 0.25rem;
+      }
+      
+      .users-count {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 50%;
+        background-color: var(--primary-color);
+        color: white;
+        font-size: 0.75rem;
+        font-weight: bold;
+      }
+    }
+  }
 }
