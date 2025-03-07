@@ -39,6 +39,14 @@ a {
   }
 }
 
+button, input, textarea {
+  font-family: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
 /* Layout */
 .app-container {
   min-height: 100vh;
@@ -85,6 +93,12 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  
+  h2 {
+    margin-right: auto;
+  }
 }
 
 .user-info {
@@ -121,6 +135,7 @@ a {
 .message {
   margin-bottom: 1rem;
   max-width: 70%;
+  position: relative;
   
   &.sent {
     margin-left: auto;
@@ -128,6 +143,14 @@ a {
     color: white;
     border-radius: var(--border-radius) 0 var(--border-radius) var(--border-radius);
     padding: 0.75rem;
+    
+    .message-header {
+      color: rgba(255, 255, 255, 0.9);
+    }
+    
+    .edited-indicator {
+      color: rgba(255, 255, 255, 0.7);
+    }
   }
   
   &.received {
@@ -135,13 +158,36 @@ a {
     background-color: var(--light-gray);
     border-radius: 0 var(--border-radius) var(--border-radius) var(--border-radius);
     padding: 0.75rem;
+    
+    .message-header {
+      color: var(--secondary-color);
+    }
+    
+    .edited-indicator {
+      color: var(--secondary-color);
+      opacity: 0.7;
+    }
   }
   
   .message-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     font-size: 0.8rem;
     margin-bottom: 0.25rem;
+    
+    .username {
+      font-weight: 600;
+    }
+    
+    .timestamp {
+      font-size: 0.75rem;
+      opacity: 0.8;
+    }
+  }
+  
+  .message-content {
+    word-break: break-word;
   }
 }
 
@@ -392,6 +438,19 @@ a {
     font-size: 0.8rem;
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+  
+  .chat-layout {
+    flex-direction: column;
+    
+    .chat-sidebar {
+      width: 100%;
+      height: auto;
+      max-height: 200px;
+      overflow-y: auto;
+      border-left: none;
+      border-bottom: 1px solid var(--light-gray);
+    }
   }
 }
 
