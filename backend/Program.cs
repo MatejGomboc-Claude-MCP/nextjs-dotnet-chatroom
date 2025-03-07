@@ -80,6 +80,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Add services
 builder.Services.AddScoped<IMessageService, MessageService>();
+builder.Services.AddScoped<IReactionService, ReactionService>();
 
 // Add health checks
 builder.Services.AddHealthChecks()
@@ -114,20 +115,50 @@ app.MapHealthChecks("/health");
 app.MapControllers();
 app.MapHub<ChatHub>("/chatHub");
 
-// Create database if it doesn't exist
+// Apply migrations instead of EnsureCreated for better production support
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     try
     {
         var context = services.GetRequiredService<ApplicationDbContext>();
-        context.Database.EnsureCreated();
+        
+        // In development, we can create migrations if they don't exist
+        if (app.Environment.IsDevelopment())
+        {
+            // Migrate the database
+            context.Database.Migrate();
+        }
+        else
+        {
+            // In production, just apply existing migrations
+            context.Database.Migrate();
+        }
+        
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogInformation("Database migrations applied successfully.");
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred creating the DB.");
+        logger.LogError(ex, "An error occurred while migrating the database.");
     }
 }
+
+// Clean up expired connections in SignalR on a regular basis
+var timer = new Timer(async _ =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<ChatHub>>();
+        await ChatHub.CleanupExpiredConnections(hubContext);
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Error cleaning up expired SignalR connections");
+    }
+}, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
 
 app.Run();
