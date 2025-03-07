@@ -9,26 +9,38 @@ using Microsoft.Extensions.Logging;
 using System.Web;
 using System.Text.Encodings.Web;
 using System.Collections.Generic;
+using ChatRoom.Api.Services;
 
 namespace ChatRoom.Api.Hubs
 {
     public class ChatHub : Hub
     {
         private readonly ILogger<ChatHub> _logger;
-        // Map connection IDs to usernames
-        private static readonly ConcurrentDictionary<string, string> _connectedUsers = new();
-        // Reverse mapping to easily check for duplicates
+        private readonly IReactionService _reactionService;
+        
+        // Map connection IDs to usernames and connection time
+        private static readonly ConcurrentDictionary<string, UserConnection> _connectedUsers = new();
+        // Reverse mapping to easily check for duplicates (username -> connectionId)
         private static readonly ConcurrentDictionary<string, string> _usernameToConnectionId = new();
-        // Message reactions storage - messageId -> emoji -> list of usernames
-        private static readonly ConcurrentDictionary<string, ConcurrentDictionary<string, List<string>>> _messageReactions = new();
         // HTML encoder for sanitization
         private static readonly HtmlEncoder _htmlEncoder = HtmlEncoder.Default;
         // Valid emojis for reactions
         private static readonly HashSet<string> _validEmojis = new() { "👍", "❤️", "😂", "😮", "😢", "👏" };
+        // Connection timeout (minutes)
+        private const int ConnectionTimeoutMinutes = 30;
 
-        public ChatHub(ILogger<ChatHub> logger)
+        // Track user connection with timestamp
+        private class UserConnection
+        {
+            public string Username { get; set; } = string.Empty;
+            public DateTime ConnectedAt { get; set; } = DateTime.UtcNow;
+            public DateTime LastActivity { get; set; } = DateTime.UtcNow;
+        }
+
+        public ChatHub(ILogger<ChatHub> logger, IReactionService reactionService)
         {
             _logger = logger;
+            _reactionService = reactionService;
         }
 
         public override async Task OnConnectedAsync()
@@ -42,30 +54,94 @@ namespace ChatRoom.Api.Hubs
             _logger.LogInformation($"Client disconnected: {Context.ConnectionId}");
             
             // If we have a username associated with this connection, notify others
-            if (_connectedUsers.TryRemove(Context.ConnectionId, out string username))
+            if (_connectedUsers.TryRemove(Context.ConnectionId, out var userConnection))
             {
-                // Remove from reverse mapping
-                _usernameToConnectionId.TryRemove(username, out _);
-                
-                _logger.LogInformation($"User {username} left the chat");
-                
-                // Broadcast a message to notify everyone that a user has left
-                await Clients.Others.SendAsync(
-                    "message", 
-                    new MessageDto
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        Text = $"{username} has left the chat",
-                        Username = "System",
-                        Timestamp = DateTime.UtcNow.ToString("o")
-                    }
-                );
+                string username = userConnection.Username;
+                // Try to remove from reverse mapping only if this connection owns the username
+                if (_usernameToConnectionId.TryGetValue(username, out string currentConnectionId) && 
+                    currentConnectionId == Context.ConnectionId)
+                {
+                    _usernameToConnectionId.TryRemove(username, out _);
+                    
+                    _logger.LogInformation($"User {username} left the chat");
+                    
+                    // Broadcast a message to notify everyone that a user has left
+                    await Clients.Others.SendAsync(
+                        "message", 
+                        new MessageDto
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Text = $"{username} has left the chat",
+                            Username = "System",
+                            Timestamp = DateTime.UtcNow.ToString("o")
+                        }
+                    );
 
-                // Send updated list of active users
-                await BroadcastActiveUsers();
+                    // Send updated list of active users
+                    await BroadcastActiveUsers();
+                }
             }
             
             await base.OnDisconnectedAsync(exception);
+        }
+
+        // Cleanup expired connections
+        public static async Task CleanupExpiredConnections(IHubContext<ChatHub> hubContext)
+        {
+            var now = DateTime.UtcNow;
+            var expiredConnections = new List<string>();
+            
+            // Find expired connections
+            foreach (var connection in _connectedUsers)
+            {
+                if ((now - connection.Value.LastActivity).TotalMinutes > ConnectionTimeoutMinutes)
+                {
+                    expiredConnections.Add(connection.Key);
+                }
+            }
+            
+            // Process expired connections
+            foreach (var connectionId in expiredConnections)
+            {
+                if (_connectedUsers.TryRemove(connectionId, out var userConnection))
+                {
+                    string username = userConnection.Username;
+                    
+                    // Only remove the username mapping if it still points to this connection
+                    if (_usernameToConnectionId.TryGetValue(username, out string currentConnectionId) && 
+                        currentConnectionId == connectionId)
+                    {
+                        _usernameToConnectionId.TryRemove(username, out _);
+                        
+                        // Notify clients that this user has left
+                        await hubContext.Clients.All.SendAsync(
+                            "message",
+                            new MessageDto
+                            {
+                                Id = Guid.NewGuid().ToString(),
+                                Text = $"{username} has left the chat (connection timeout)",
+                                Username = "System",
+                                Timestamp = DateTime.UtcNow.ToString("o")
+                            }
+                        );
+                        
+                        // Update active users list
+                        await hubContext.Clients.All.SendAsync("activeUsers", 
+                            _connectedUsers.Values.Select(u => u.Username).Distinct().ToList());
+                    }
+                    
+                    // Try to disconnect the client
+                    try
+                    {
+                        await hubContext.Clients.Client(connectionId).SendAsync("disconnected", 
+                            "Your connection has timed out due to inactivity");
+                    }
+                    catch (Exception)
+                    {
+                        // Connection might already be closed
+                    }
+                }
+            }
         }
 
         public async Task<object> JoinRoom(object userData)
@@ -92,17 +168,48 @@ namespace ChatRoom.Api.Hubs
                     return new { success = false, error = "Username can only contain letters, numbers, and underscores" };
                 }
 
-                // Check if username is already in use
+                // Check if username is already in use by another connection
                 if (_usernameToConnectionId.TryGetValue(username, out string existingConnectionId))
                 {
                     if (existingConnectionId != Context.ConnectionId)
                     {
-                        return new { success = false, error = "Username is already in use" };
+                        // If the existing connection is still active and not expired
+                        if (_connectedUsers.TryGetValue(existingConnectionId, out var existingConnection))
+                        {
+                            // Check if the connection has been inactive for more than 5 minutes
+                            if ((DateTime.UtcNow - existingConnection.LastActivity).TotalMinutes < 5)
+                            {
+                                return new { success = false, error = "Username is already in use" };
+                            }
+                            
+                            // If inactive, take over the username
+                            _connectedUsers.TryRemove(existingConnectionId, out _);
+                            _logger.LogInformation($"Inactive connection {existingConnectionId} for username {username} has been replaced");
+                        }
                     }
                 }
 
+                // Handle case where user is reconnecting with same username
+                // Remove any previous connection with this username
+                foreach (var conn in _connectedUsers.Where(c => c.Value.Username == username).ToList())
+                {
+                    if (conn.Key != Context.ConnectionId)
+                    {
+                        _connectedUsers.TryRemove(conn.Key, out _);
+                        _logger.LogInformation($"Removed old connection {conn.Key} for username {username}");
+                    }
+                }
+
+                // Update or create user connection
+                var userConnection = new UserConnection
+                {
+                    Username = username,
+                    ConnectedAt = DateTime.UtcNow,
+                    LastActivity = DateTime.UtcNow
+                };
+                
                 // Store username with connection id (both ways for easy lookup)
-                _connectedUsers[Context.ConnectionId] = username;
+                _connectedUsers[Context.ConnectionId] = userConnection;
                 _usernameToConnectionId[username] = Context.ConnectionId;
                 
                 _logger.LogInformation($"User {username} joined the chat");
@@ -135,6 +242,8 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicMessage = (dynamic)messageData;
                 string? text = dynamicMessage?.text;
                 string? username = dynamicMessage?.username;
@@ -152,7 +261,7 @@ namespace ChatRoom.Api.Hubs
                 }
 
                 // Verify user is connected
-                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                if (!VerifyUserConnection(username))
                 {
                     _logger.LogWarning($"Rejected message from unauthorized user: {username}");
                     return new { success = false, error = "Unauthorized to send messages" };
@@ -170,13 +279,6 @@ namespace ChatRoom.Api.Hubs
                     Timestamp = DateTime.UtcNow.ToString("o")
                 };
 
-                // Initialize reactions dictionary for this message
-                _messageReactions[messageId] = new ConcurrentDictionary<string, List<string>>();
-                foreach (var emoji in _validEmojis)
-                {
-                    _messageReactions[messageId][emoji] = new List<string>();
-                }
-
                 // Broadcast the message to all clients
                 await Clients.All.SendAsync("message", messageDto);
                 return new { success = true, messageId = messageDto.Id };
@@ -192,6 +294,8 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicData = (dynamic)typingData;
                 string? username = dynamicData?.username;
                 bool isTyping = dynamicData?.isTyping ?? false;
@@ -202,7 +306,7 @@ namespace ChatRoom.Api.Hubs
                 }
 
                 // Verify user is connected with the claimed username
-                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                if (!VerifyUserConnection(username))
                 {
                     _logger.LogWarning($"Rejected typing status from unauthorized user: {username}");
                     return;
@@ -226,7 +330,9 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
-                var activeUsers = _connectedUsers.Values.Distinct().ToList();
+                UpdateUserActivity();
+                
+                var activeUsers = _connectedUsers.Values.Select(u => u.Username).Distinct().ToList();
                 return new { success = true, users = activeUsers };
             }
             catch (Exception ex)
@@ -241,6 +347,8 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicData = (dynamic)messageData;
                 string? messageId = dynamicData?.messageId;
                 string? username = dynamicData?.username;
@@ -250,8 +358,8 @@ namespace ChatRoom.Api.Hubs
                     return new { success = false, error = "Message ID and username are required" };
                 }
 
-                // Verify user is connected with the claimed username
-                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                // Verify user is connected
+                if (!VerifyUserConnection(username))
                 {
                     _logger.LogWarning($"Rejected message deletion from unauthorized user: {username}");
                     return new { success = false, error = "Unauthorized to delete messages" };
@@ -259,9 +367,6 @@ namespace ChatRoom.Api.Hubs
 
                 // In a real app, we'd verify message ownership in the database
                 // For now, we'll just broadcast the deletion event
-                
-                // Remove reactions for this message
-                _messageReactions.TryRemove(messageId, out _);
                 
                 await Clients.All.SendAsync("messageDeleted", new { messageId });
                 return new { success = true };
@@ -278,6 +383,8 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicData = (dynamic)messageData;
                 string? messageId = dynamicData?.messageId;
                 string? newText = dynamicData?.text;
@@ -288,8 +395,8 @@ namespace ChatRoom.Api.Hubs
                     return new { success = false, error = "Message ID, text, and username are required" };
                 }
 
-                // Verify user is connected with the claimed username
-                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                // Verify user is connected
+                if (!VerifyUserConnection(username))
                 {
                     _logger.LogWarning($"Rejected message edit from unauthorized user: {username}");
                     return new { success = false, error = "Unauthorized to edit messages" };
@@ -328,6 +435,8 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicData = (dynamic)reactionData;
                 string? messageId = dynamicData?.messageId;
                 string? emoji = dynamicData?.emoji;
@@ -339,7 +448,7 @@ namespace ChatRoom.Api.Hubs
                 }
 
                 // Verify user is connected
-                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                if (!VerifyUserConnection(username))
                 {
                     _logger.LogWarning($"Rejected reaction from unauthorized user: {username}");
                     return new { success = false, error = "Unauthorized to add reactions" };
@@ -351,31 +460,35 @@ namespace ChatRoom.Api.Hubs
                     return new { success = false, error = "Invalid emoji" };
                 }
 
-                // Check if message exists
-                if (!_messageReactions.TryGetValue(messageId, out var messageEmojis))
+                // Add reaction to database through the service
+                try
                 {
-                    _messageReactions[messageId] = new ConcurrentDictionary<string, List<string>>();
-                    foreach (var validEmoji in _validEmojis)
+                    Guid messageGuid = Guid.Parse(messageId);
+                    bool success = await _reactionService.AddReactionAsync(messageGuid, emoji, username);
+                    
+                    if (success)
                     {
-                        _messageReactions[messageId][validEmoji] = new List<string>();
+                        // Get updated reactions
+                        var reactions = await _reactionService.GetReactionsForMessageAsync(messageGuid);
+                        
+                        // Broadcast the updated reactions
+                        await Clients.All.SendAsync("messageReactions", new
+                        {
+                            messageId,
+                            reactions
+                        });
+                        
+                        return new { success = true };
                     }
-                    messageEmojis = _messageReactions[messageId];
+                    else
+                    {
+                        return new { success = false, error = "Failed to add reaction" };
+                    }
                 }
-
-                // Add user to the reaction if not already there
-                if (!messageEmojis.TryGetValue(emoji, out var users))
+                catch (FormatException)
                 {
-                    messageEmojis[emoji] = new List<string>() { username };
+                    return new { success = false, error = "Invalid message ID format" };
                 }
-                else if (!users.Contains(username))
-                {
-                    users.Add(username);
-                }
-
-                // Broadcast updated reactions
-                await BroadcastReactions(messageId);
-                
-                return new { success = true };
             }
             catch (Exception ex)
             {
@@ -389,6 +502,8 @@ namespace ChatRoom.Api.Hubs
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicData = (dynamic)reactionData;
                 string? messageId = dynamicData?.messageId;
                 string? emoji = dynamicData?.emoji;
@@ -400,23 +515,41 @@ namespace ChatRoom.Api.Hubs
                 }
 
                 // Verify user is connected
-                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                if (!VerifyUserConnection(username))
                 {
                     _logger.LogWarning($"Rejected reaction removal from unauthorized user: {username}");
                     return new { success = false, error = "Unauthorized to remove reactions" };
                 }
 
-                // Check if message and emoji exist
-                if (_messageReactions.TryGetValue(messageId, out var messageEmojis) && 
-                    messageEmojis.TryGetValue(emoji, out var users))
+                // Remove reaction from database through the service
+                try
                 {
-                    users.Remove(username);
+                    Guid messageGuid = Guid.Parse(messageId);
+                    bool success = await _reactionService.RemoveReactionAsync(messageGuid, emoji, username);
+                    
+                    if (success)
+                    {
+                        // Get updated reactions
+                        var reactions = await _reactionService.GetReactionsForMessageAsync(messageGuid);
+                        
+                        // Broadcast the updated reactions
+                        await Clients.All.SendAsync("messageReactions", new
+                        {
+                            messageId,
+                            reactions
+                        });
+                        
+                        return new { success = true };
+                    }
+                    else
+                    {
+                        return new { success = false, error = "Failed to remove reaction" };
+                    }
                 }
-
-                // Broadcast updated reactions
-                await BroadcastReactions(messageId);
-                
-                return new { success = true };
+                catch (FormatException)
+                {
+                    return new { success = false, error = "Invalid message ID format" };
+                }
             }
             catch (Exception ex)
             {
@@ -426,10 +559,12 @@ namespace ChatRoom.Api.Hubs
         }
 
         // Get reactions for a message
-        public object GetReactions(object messageData)
+        public async Task<object> GetReactions(object messageData)
         {
             try
             {
+                UpdateUserActivity();
+                
                 var dynamicData = (dynamic)messageData;
                 string? messageId = dynamicData?.messageId;
 
@@ -438,18 +573,17 @@ namespace ChatRoom.Api.Hubs
                     return new { success = false, error = "Message ID is required" };
                 }
 
-                if (_messageReactions.TryGetValue(messageId, out var reactions))
+                try
                 {
-                    // Convert to dictionary of emoji -> { count, usernames }
-                    var formattedReactions = reactions.ToDictionary(
-                        kvp => kvp.Key,
-                        kvp => new { count = kvp.Value.Count, usernames = kvp.Value }
-                    );
+                    Guid messageGuid = Guid.Parse(messageId);
+                    var reactions = await _reactionService.GetReactionsForMessageAsync(messageGuid);
                     
-                    return new { success = true, reactions = formattedReactions };
+                    return new { success = true, reactions };
                 }
-
-                return new { success = true, reactions = new Dictionary<string, object>() };
+                catch (FormatException)
+                {
+                    return new { success = false, error = "Invalid message ID format" };
+                }
             }
             catch (Exception ex)
             {
@@ -458,29 +592,10 @@ namespace ChatRoom.Api.Hubs
             }
         }
 
-        // Broadcast reactions to all clients
-        private async Task BroadcastReactions(string messageId)
-        {
-            if (_messageReactions.TryGetValue(messageId, out var reactions))
-            {
-                // Convert to dictionary of emoji -> { count, usernames }
-                var formattedReactions = reactions.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => new { count = kvp.Value.Count, usernames = kvp.Value }
-                );
-                
-                await Clients.All.SendAsync("messageReactions", new
-                {
-                    messageId,
-                    reactions = formattedReactions
-                });
-            }
-        }
-
         // Broadcast active users to all clients
         private async Task BroadcastActiveUsers()
         {
-            var activeUsers = _connectedUsers.Values.Distinct().ToList();
+            var activeUsers = _connectedUsers.Values.Select(u => u.Username).Distinct().ToList();
             await Clients.All.SendAsync("activeUsers", activeUsers);
         }
 
@@ -494,6 +609,40 @@ namespace ChatRoom.Api.Hubs
 
             // HTML encode the input to prevent XSS
             return _htmlEncoder.Encode(input);
+        }
+        
+        // Update the last activity timestamp for the current user
+        private void UpdateUserActivity()
+        {
+            if (_connectedUsers.TryGetValue(Context.ConnectionId, out var userConnection))
+            {
+                userConnection.LastActivity = DateTime.UtcNow;
+            }
+        }
+        
+        // Verify that the user is connected and authorized to perform actions
+        private bool VerifyUserConnection(string username)
+        {
+            // Check if connection ID exists in our tracking
+            if (!_connectedUsers.TryGetValue(Context.ConnectionId, out var userConnection))
+            {
+                return false;
+            }
+            
+            // Check if the username matches
+            if (userConnection.Username != username)
+            {
+                return false;
+            }
+            
+            // Check if this connection is the current owner of the username
+            if (!_usernameToConnectionId.TryGetValue(username, out string currentConnectionId) ||
+                currentConnectionId != Context.ConnectionId)
+            {
+                return false;
+            }
+            
+            return true;
         }
     }
 }
