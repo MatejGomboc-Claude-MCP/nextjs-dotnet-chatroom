@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using System.Web;
 using System.Text.Encodings.Web;
+using System.Collections.Generic;
 
 namespace ChatRoom.Api.Hubs
 {
@@ -18,8 +19,12 @@ namespace ChatRoom.Api.Hubs
         private static readonly ConcurrentDictionary<string, string> _connectedUsers = new();
         // Reverse mapping to easily check for duplicates
         private static readonly ConcurrentDictionary<string, string> _usernameToConnectionId = new();
+        // Message reactions storage - messageId -> emoji -> list of usernames
+        private static readonly ConcurrentDictionary<string, ConcurrentDictionary<string, List<string>>> _messageReactions = new();
         // HTML encoder for sanitization
         private static readonly HtmlEncoder _htmlEncoder = HtmlEncoder.Default;
+        // Valid emojis for reactions
+        private static readonly HashSet<string> _validEmojis = new() { "👍", "❤️", "😂", "😮", "😢", "👏" };
 
         public ChatHub(ILogger<ChatHub> logger)
         {
@@ -156,13 +161,21 @@ namespace ChatRoom.Api.Hubs
                 // Sanitize text to prevent XSS
                 string sanitizedText = SanitizeInput(text);
                 
+                var messageId = Guid.NewGuid().ToString();
                 var messageDto = new MessageDto
                 {
-                    Id = Guid.NewGuid().ToString(),
+                    Id = messageId,
                     Text = sanitizedText,
                     Username = username,
                     Timestamp = DateTime.UtcNow.ToString("o")
                 };
+
+                // Initialize reactions dictionary for this message
+                _messageReactions[messageId] = new ConcurrentDictionary<string, List<string>>();
+                foreach (var emoji in _validEmojis)
+                {
+                    _messageReactions[messageId][emoji] = new List<string>();
+                }
 
                 // Broadcast the message to all clients
                 await Clients.All.SendAsync("message", messageDto);
@@ -247,6 +260,9 @@ namespace ChatRoom.Api.Hubs
                 // In a real app, we'd verify message ownership in the database
                 // For now, we'll just broadcast the deletion event
                 
+                // Remove reactions for this message
+                _messageReactions.TryRemove(messageId, out _);
+                
                 await Clients.All.SendAsync("messageDeleted", new { messageId });
                 return new { success = true };
             }
@@ -304,6 +320,160 @@ namespace ChatRoom.Api.Hubs
             {
                 _logger.LogError(ex, "Error in EditMessage");
                 return new { success = false, error = "An error occurred while editing the message" };
+            }
+        }
+
+        // Add a reaction to a message
+        public async Task<object> AddReaction(object reactionData)
+        {
+            try
+            {
+                var dynamicData = (dynamic)reactionData;
+                string? messageId = dynamicData?.messageId;
+                string? emoji = dynamicData?.emoji;
+                string? username = dynamicData?.username;
+
+                if (string.IsNullOrEmpty(messageId) || string.IsNullOrEmpty(emoji) || string.IsNullOrEmpty(username))
+                {
+                    return new { success = false, error = "Message ID, emoji, and username are required" };
+                }
+
+                // Verify user is connected
+                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                {
+                    _logger.LogWarning($"Rejected reaction from unauthorized user: {username}");
+                    return new { success = false, error = "Unauthorized to add reactions" };
+                }
+
+                // Validate emoji
+                if (!_validEmojis.Contains(emoji))
+                {
+                    return new { success = false, error = "Invalid emoji" };
+                }
+
+                // Check if message exists
+                if (!_messageReactions.TryGetValue(messageId, out var messageEmojis))
+                {
+                    _messageReactions[messageId] = new ConcurrentDictionary<string, List<string>>();
+                    foreach (var validEmoji in _validEmojis)
+                    {
+                        _messageReactions[messageId][validEmoji] = new List<string>();
+                    }
+                    messageEmojis = _messageReactions[messageId];
+                }
+
+                // Add user to the reaction if not already there
+                if (!messageEmojis.TryGetValue(emoji, out var users))
+                {
+                    messageEmojis[emoji] = new List<string>() { username };
+                }
+                else if (!users.Contains(username))
+                {
+                    users.Add(username);
+                }
+
+                // Broadcast updated reactions
+                await BroadcastReactions(messageId);
+                
+                return new { success = true };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in AddReaction");
+                return new { success = false, error = "An error occurred while adding the reaction" };
+            }
+        }
+
+        // Remove a reaction from a message
+        public async Task<object> RemoveReaction(object reactionData)
+        {
+            try
+            {
+                var dynamicData = (dynamic)reactionData;
+                string? messageId = dynamicData?.messageId;
+                string? emoji = dynamicData?.emoji;
+                string? username = dynamicData?.username;
+
+                if (string.IsNullOrEmpty(messageId) || string.IsNullOrEmpty(emoji) || string.IsNullOrEmpty(username))
+                {
+                    return new { success = false, error = "Message ID, emoji, and username are required" };
+                }
+
+                // Verify user is connected
+                if (!_connectedUsers.TryGetValue(Context.ConnectionId, out string storedUsername) || storedUsername != username)
+                {
+                    _logger.LogWarning($"Rejected reaction removal from unauthorized user: {username}");
+                    return new { success = false, error = "Unauthorized to remove reactions" };
+                }
+
+                // Check if message and emoji exist
+                if (_messageReactions.TryGetValue(messageId, out var messageEmojis) && 
+                    messageEmojis.TryGetValue(emoji, out var users))
+                {
+                    users.Remove(username);
+                }
+
+                // Broadcast updated reactions
+                await BroadcastReactions(messageId);
+                
+                return new { success = true };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in RemoveReaction");
+                return new { success = false, error = "An error occurred while removing the reaction" };
+            }
+        }
+
+        // Get reactions for a message
+        public object GetReactions(object messageData)
+        {
+            try
+            {
+                var dynamicData = (dynamic)messageData;
+                string? messageId = dynamicData?.messageId;
+
+                if (string.IsNullOrEmpty(messageId))
+                {
+                    return new { success = false, error = "Message ID is required" };
+                }
+
+                if (_messageReactions.TryGetValue(messageId, out var reactions))
+                {
+                    // Convert to dictionary of emoji -> { count, usernames }
+                    var formattedReactions = reactions.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => new { count = kvp.Value.Count, usernames = kvp.Value }
+                    );
+                    
+                    return new { success = true, reactions = formattedReactions };
+                }
+
+                return new { success = true, reactions = new Dictionary<string, object>() };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetReactions");
+                return new { success = false, error = "An error occurred while getting reactions" };
+            }
+        }
+
+        // Broadcast reactions to all clients
+        private async Task BroadcastReactions(string messageId)
+        {
+            if (_messageReactions.TryGetValue(messageId, out var reactions))
+            {
+                // Convert to dictionary of emoji -> { count, usernames }
+                var formattedReactions = reactions.ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => new { count = kvp.Value.Count, usernames = kvp.Value }
+                );
+                
+                await Clients.All.SendAsync("messageReactions", new
+                {
+                    messageId,
+                    reactions = formattedReactions
+                });
             }
         }
 
