@@ -11,12 +11,42 @@ export interface Message {
   username: string;
   timestamp: string;
   isCurrentUser?: boolean;
+  isEdited?: boolean;
+  editedAt?: string;
 }
 
 // Typing status
 export interface TypingStatus {
   username: string;
   isTyping: boolean;
+}
+
+// Message edited data
+export interface MessageEdited {
+  messageId: string;
+  text: string;
+  editedAt: string;
+}
+
+// Message deleted data
+export interface MessageDeleted {
+  messageId: string;
+}
+
+// Message reactions
+export interface Reaction {
+  emoji: string;
+  count: number;
+  usernames: string[];
+}
+
+export interface ReactionsMap {
+  [emoji: string]: Reaction;
+}
+
+export interface MessageReactions {
+  messageId: string;
+  reactions: ReactionsMap;
 }
 
 // Reconnection configuration
@@ -29,6 +59,10 @@ class ChatConnection {
   private messageListeners: ((message: Message) => void)[] = [];
   private typingListeners: ((status: TypingStatus) => void)[] = [];
   private connectionListeners: ((isConnected: boolean) => void)[] = [];
+  private activeUsersListeners: ((users: string[]) => void)[] = [];
+  private messageEditedListeners: ((data: MessageEdited) => void)[] = [];
+  private messageDeletedListeners: ((data: MessageDeleted) => void)[] = [];
+  private messageReactionsListeners: ((data: MessageReactions) => void)[] = [];
   private reconnectAttempt: number = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentUsername: string = '';
@@ -66,7 +100,10 @@ class ChatConnection {
       this.reconnectAttempt = 0;
       
       // Join the chat room
-      await this.connection.invoke('JoinRoom', { username });
+      const joinResponse = await this.connection.invoke('JoinRoom', { username });
+      if (!joinResponse.success) {
+        throw new Error(joinResponse.error || 'Failed to join chat room');
+      }
       
       // Notify listeners that connection is established
       this.notifyConnectionListeners(true);
@@ -167,7 +204,11 @@ class ChatConnection {
         await this.sendTypingStatus(username, false);
       }
       
-      await this.connection.invoke('SendMessage', { text, username });
+      const response = await this.connection.invoke('SendMessage', { text, username });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to send message');
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       
@@ -213,6 +254,128 @@ class ChatConnection {
     }
   }
   
+  // Edit a message
+  async editMessage(messageId: string, text: string, username: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error('No active SignalR connection');
+    }
+    
+    try {
+      const response = await this.connection.invoke('EditMessage', { messageId, text, username });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to edit message');
+      }
+    } catch (error) {
+      console.error('Error editing message:', error);
+      
+      if (this.connection.state !== 'Connected') {
+        this.notifyConnectionListeners(false);
+        this.handleConnectionError();
+      }
+      
+      throw error;
+    }
+  }
+  
+  // Delete a message
+  async deleteMessage(messageId: string, username: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error('No active SignalR connection');
+    }
+    
+    try {
+      const response = await this.connection.invoke('DeleteMessage', { messageId, username });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to delete message');
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      
+      if (this.connection.state !== 'Connected') {
+        this.notifyConnectionListeners(false);
+        this.handleConnectionError();
+      }
+      
+      throw error;
+    }
+  }
+  
+  // Add a reaction to a message
+  async addReaction(messageId: string, emoji: string, username: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error('No active SignalR connection');
+    }
+    
+    try {
+      const response = await this.connection.invoke('AddReaction', { messageId, emoji, username });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to add reaction');
+      }
+    } catch (error) {
+      console.error('Error adding reaction:', error);
+      
+      if (this.connection.state !== 'Connected') {
+        this.notifyConnectionListeners(false);
+        this.handleConnectionError();
+      }
+      
+      throw error;
+    }
+  }
+  
+  // Remove a reaction from a message
+  async removeReaction(messageId: string, emoji: string, username: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error('No active SignalR connection');
+    }
+    
+    try {
+      const response = await this.connection.invoke('RemoveReaction', { messageId, emoji, username });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to remove reaction');
+      }
+    } catch (error) {
+      console.error('Error removing reaction:', error);
+      
+      if (this.connection.state !== 'Connected') {
+        this.notifyConnectionListeners(false);
+        this.handleConnectionError();
+      }
+      
+      throw error;
+    }
+  }
+  
+  // Get reactions for a message
+  async getReactions(messageId: string): Promise<ReactionsMap> {
+    if (!this.connection) {
+      throw new Error('No active SignalR connection');
+    }
+    
+    try {
+      const response = await this.connection.invoke('GetReactions', { messageId });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to get reactions');
+      }
+      
+      return response.reactions || {};
+    } catch (error) {
+      console.error('Error getting reactions:', error);
+      
+      if (this.connection.state !== 'Connected') {
+        this.notifyConnectionListeners(false);
+        this.handleConnectionError();
+      }
+      
+      throw error;
+    }
+  }
+  
   // Set up connection event listeners
   private setupListeners(): void {
     if (!this.connection) return;
@@ -225,6 +388,26 @@ class ChatConnection {
     // Typing status listener
     this.connection.on('typingStatus', (status: TypingStatus) => {
       this.notifyTypingListeners(status);
+    });
+    
+    // Active users listener
+    this.connection.on('activeUsers', (users: string[]) => {
+      this.notifyActiveUsersListeners(users);
+    });
+    
+    // Message edited listener
+    this.connection.on('messageEdited', (data: MessageEdited) => {
+      this.notifyMessageEditedListeners(data);
+    });
+    
+    // Message deleted listener
+    this.connection.on('messageDeleted', (data: MessageDeleted) => {
+      this.notifyMessageDeletedListeners(data);
+    });
+    
+    // Message reactions listener
+    this.connection.on('messageReactions', (data: MessageReactions) => {
+      this.notifyMessageReactionsListeners(data);
     });
     
     // Connection events
@@ -292,6 +475,46 @@ class ChatConnection {
     };
   }
   
+  // Register active users listener
+  onActiveUsers(callback: (users: string[]) => void): () => void {
+    this.activeUsersListeners.push(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      this.activeUsersListeners = this.activeUsersListeners.filter(listener => listener !== callback);
+    };
+  }
+  
+  // Register message edited listener
+  onMessageEdited(callback: (data: MessageEdited) => void): () => void {
+    this.messageEditedListeners.push(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      this.messageEditedListeners = this.messageEditedListeners.filter(listener => listener !== callback);
+    };
+  }
+  
+  // Register message deleted listener
+  onMessageDeleted(callback: (data: MessageDeleted) => void): () => void {
+    this.messageDeletedListeners.push(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      this.messageDeletedListeners = this.messageDeletedListeners.filter(listener => listener !== callback);
+    };
+  }
+  
+  // Register message reactions listener
+  onMessageReactions(callback: (data: MessageReactions) => void): () => void {
+    this.messageReactionsListeners.push(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      this.messageReactionsListeners = this.messageReactionsListeners.filter(listener => listener !== callback);
+    };
+  }
+  
   // Notify all message listeners
   private notifyMessageListeners(message: Message): void {
     this.messageListeners.forEach(listener => listener(message));
@@ -305,6 +528,26 @@ class ChatConnection {
   // Notify all connection listeners
   private notifyConnectionListeners(isConnected: boolean): void {
     this.connectionListeners.forEach(listener => listener(isConnected));
+  }
+  
+  // Notify all active users listeners
+  private notifyActiveUsersListeners(users: string[]): void {
+    this.activeUsersListeners.forEach(listener => listener(users));
+  }
+  
+  // Notify all message edited listeners
+  private notifyMessageEditedListeners(data: MessageEdited): void {
+    this.messageEditedListeners.forEach(listener => listener(data));
+  }
+  
+  // Notify all message deleted listeners
+  private notifyMessageDeletedListeners(data: MessageDeleted): void {
+    this.messageDeletedListeners.forEach(listener => listener(data));
+  }
+  
+  // Notify all message reactions listeners
+  private notifyMessageReactionsListeners(data: MessageReactions): void {
+    this.messageReactionsListeners.forEach(listener => listener(data));
   }
   
   // Check if connected
